@@ -1,28 +1,110 @@
 {
-  "fill": {
-    "solid": "extended-srgb:0.00000,0.36000,1.00000,1.00000"
+  "fill" : {
+    "linear-gradient" : [
+      "extended-srgb:0.00000,0.72000,0.99000,1.00000",
+      "extended-srgb:0.03000,0.25000,0.97000,1.00000"
+    ]
   },
-  "groups": [
+  "groups" : [
     {
-      "layers": [
+      "layers" : [
         {
-          "image-name": "Maps-Omega-Peel.png",
-          "name": "Maps peeling to Omega blueprint",
-          "glass": false
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "07-Navigation-Arrow.svg",
+          "name" : "Navigation arrow"
+        },
+        {
+          "glass" : true,
+          "image-name" : "06-Navigation-Disc.svg",
+          "name" : "Blue navigation lens"
+        },
+        {
+          "glass" : true,
+          "image-name" : "05-Navigation-Rim.svg",
+          "name" : "Map medallion rim"
         }
       ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0
+      "name" : "Navigation glass",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.35
       },
-      "translucency": {
-        "enabled": false,
-        "value": 0
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.1
+      }
+    },
+    {
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "04-Curled-Edge.svg",
+          "name" : "Curled paper edge"
+        },
+        {
+          "glass" : true,
+          "image-name" : "03-Map.svg",
+          "name" : "Map surface"
+        },
+        {
+          "glass" : false,
+          "image-name" : "03a-Peel-Shadow.svg",
+          "name" : "Fold separation shadow"
+        }
+      ],
+      "name" : "Peeled Maps surface",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.1
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "02-Omega.svg",
+          "name" : "Symmetric Omega outline"
+        },
+        {
+          "glass" : false,
+          "image-name" : "01-Construction.svg",
+          "name" : "Centered construction grid",
+          "opacity" : 0.42
+        }
+      ],
+      "name" : "Omega schematic",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.1
       }
     }
   ],
-  "supported-platforms": {
-    "squares": [
+  "supported-platforms" : {
+    "squares" : [
       "iOS"
     ]
   }

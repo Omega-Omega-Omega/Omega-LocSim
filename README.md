@@ -2,9 +2,9 @@
 
 Omega LocSim is an iPhone location simulator built from [StikDebug](https://github.com/StikDebug/StikDebug), with a native MapKit interface and Liquid Glass controls.
 
-## Version 3.2.2
+## Version 3.2.3
 
-Version 3.2.2 (build 4) restores the supplied icon concept: a colorful Maps-inspired surface peeling back to reveal an Omega blueprint. The artwork fills the system mask without a white outer border. Settings branding uses the same artwork. This is an artwork-only update; phone behavior was last checked on 3.2.1. The phone remains disconnected.
+Version 3.2.3 (build 5) rebuilds the supplied icon concept in Apple Icon Composer with eight editable vector layers: a colorful Maps-inspired surface peeling back to reveal an Omega blueprint. The artwork fills the system mask without a white outer border. Settings branding uses the same artwork. This is an artwork-only update; phone behavior was last checked on 3.2.1. The phone remains disconnected.
 
 ## Version 3.2.1
 
@@ -41,7 +41,7 @@ Physical manual checks also confirmed 48 km/h and 1.3 km converting to 30 mph an
 
 The bundled bridge targets physical iOS arm64; simulator UI validation uses a separate harness with fake device transport. Omega LocSim uses `com.omega.locsim` and `group.com.omega.locsim`, so it can coexist with StikDebug. Its display name is Omega LocSim; internal project/module names retain upstream compatibility.
 
-The active icon is `StikDebug/OmegaLocSimPeel.icon`, using the supplied peeled Maps/Omega blueprint composition adapted into full-bleed artwork. Apple's icon renderer supplies its system mask and tinted appearance. See [artwork and generation notes](branding/omega-locsim-peel/README.md). The earlier vector/glass icon and original reference remain preserved.
+The active icon is `StikDebug/OmegaLocSimPeel.icon`, using eight vector layers for the peeled Maps/Omega blueprint composition. Apple's icon renderer supplies its system mask and tinted appearance. See [artwork and generation notes](branding/omega-locsim-peel/README.md). The earlier vector/glass icon and original reference remain preserved.
 
 ## Source and attribution
 

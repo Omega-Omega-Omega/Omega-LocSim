@@ -1,13 +1,9 @@
-# Omega LocSim peeled Maps / Omega blueprint icon
+# Layered Maps peel / Omega schematic
 
-The owner-supplied reference is preserved at `../omega-locsim-icon-source.jpg`. The active Icon Composer document is `../../StikDebug/OmegaLocSimPeel.icon`; its `Assets/Maps-Omega-Peel.png` is the production 1024 × 1024 source. It fills all four corners. The operating system applies the icon mask, so there is no baked white border.
+Version 3.2.3 (build 5). Reconstructed from the supplied reference in `../omega-locsim-icon-source.jpg` as editable SVG geometry, assembled and refined in Apple Icon Composer. The active document is `../../StikDebug/OmegaLocSimPeel.icon`.
 
-Created using the built-in image-generation tool, then resized with sips and rendered with Apple Icon Composer's ictool. The peel, map and blueprint are one raster illustration. It is not a multilayer parallax illustration; the prior editable glass/vector icon remains separately preserved. Default and Dark retain the color artwork; the tinted rendering is supplied by Apple's renderer.
+Eight layers in three groups separate the navigation arrow, blue lens, rim, map surface, curled edge, fold shadow, symmetric Omega outline, and centered construction grid. The blueprint is an Apple-style icon construction diagram; the Omega and grid share the x=512 centerline. The background fills the canvas and iOS supplies the rounded mask. There is no white outer border.
 
-## Generation prompt
+Native glass is enabled on the navigation and map/peel surfaces. The schematic stays crisp, with explicit white dark-appearance fills for the Omega and arrow. Apple's renderer supplies tinted treatment. Default, Dark, and TintedDark exports were reviewed. All layers are SVG; the prior raster remains preserved but is not referenced by the active document.
 
-Edit this supplied Omega LocSim app-icon reference into production iOS app-icon artwork. Preserve closely its composition: Apple Maps-inspired colorful green white yellow pink blue map surface at upper left, circular blue navigation arrow, realistic curled/peeled diagonal map layer revealing the large white outlined Omega Ω schematic on a vivid cyan-to-cobalt blueprint with fine construction grid underneath at lower right. Refine the materials with restrained luminous glass highlights and crisp elegant Apple icon craftsmanship. Crucial change: NO white outer canvas, NO rounded-square border or baked rounded icon silhouette, NO surrounding margins. The artwork must fill the entire square canvas edge to edge including ALL four corners, with the blue blueprint extending to every otherwise uncovered edge. iOS will apply the rounded mask later. This is the icon artwork itself, flat front-on view, not a mockup. Preserve a large legible Omega outline and substantial visible map flap. No text labels, no extra logos, no frame. Square 1024x1024 production asset.
-
-## Integration
-
-Both Xcode configurations select OmegaLocSimPeel. The Settings OmegaLocSimBrand image set uses 80/160/240 pixel exports from Apple's renderer. Version 3.2.2 build 4 distinguishes the updated asset from installed 3.2.1. No runtime logic changes are included.
+`previous-flattened.icon` preserves the prior 3.2.2 artwork. Both Xcode build configurations continue selecting `OmegaLocSimPeel`. Settings branding uses 80/160/240-pixel native exports. No location-simulation code changed.
