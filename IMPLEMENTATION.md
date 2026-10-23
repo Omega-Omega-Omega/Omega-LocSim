@@ -1,4 +1,8 @@
-# Omega LocSim 3.2.5 implementation and validation
+# Omega LocSim 3.2.6 implementation and validation
+
+## 3.2.6 icon positioning refinement
+
+Build 8 raises the navigation assembly 100 canvas units, expands the shared peel reveal by about 70–80 units, and uses the same blue blueprint gradient and construction-guide colors in Default and Dark. The map's dark palette remains charcoal with blue navigation. The Omega path and its centering/symmetry are unchanged. The shared mask remains identical across all 18 map/navigation elements. The 40-layer source remains vector-only. Build/package evidence: `../work/omega-3.2.6-release-build.log`, `../work/omega-3.2.6-package-validation.json`. This is an artwork-only change; no phone connection or installation was performed.
 
 ## 3.2.5 complete-map masking and dark palette
 
@@ -22,7 +26,7 @@ This **3.2.1 build 3** update adds the user-approved fixed Overpass fallback und
 
 Based on [StikDebug](https://github.com/StikDebug/StikDebug) commit `17b1e1d90d602a228de663a10efa987a9f9e547b`, with [idevice](https://github.com/jkcoxson/idevice) for device communication. `README.upstream.md`, original notices, and [AGPL-3.0](LICENSE) remain preserved.
 
-Omega LocSim uses `com.omega.locsim` and `group.com.omega.locsim`, including legacy group-storage callers. StikDebug URL registrations were removed to avoid intercepting the original app's links. Internal project/module names, protocol Bonjour declarations, preferences, and file identifiers retain compatibility. Current source version is **3.2.5, build 7**. The prior **3.2.0, build 2** release is documented in the separate baseline below.
+Omega LocSim uses `com.omega.locsim` and `group.com.omega.locsim`, including legacy group-storage callers. StikDebug URL registrations were removed to avoid intercepting the original app's links. Internal project/module names, protocol Bonjour declarations, preferences, and file identifiers retain compatibility. Current source version is **3.2.6, build 8**. The prior **3.2.0, build 2** release is documented in the separate baseline below.
 
 The previous 3.2 icon is retained as historical artwork. `StikDebug/OmegaLocSimGlass.icon` contains original Ω and navigation SVG layers assembled, previewed, and saved with Apple's Icon Composer. Native group glass effects and a cyan-to-cobalt background produce Default, Dark, and tintable appearances. Both build configurations select `OmegaLocSimGlass`; the synchronized target includes the document automatically. `OmegaLocSimBrand.imageset` uses resized Default/Dark renders for Settings. Original SVGs, workflow details, and Apple references are in [branding/omega-locsim-glass/README.md](branding/omega-locsim-glass/README.md).
 

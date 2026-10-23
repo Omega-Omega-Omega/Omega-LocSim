@@ -2,9 +2,9 @@
 
 Omega LocSim is an iPhone location simulator built from [StikDebug](https://github.com/StikDebug/StikDebug), with a native MapKit interface and Liquid Glass controls.
 
-## Version 3.2.5
+## Version 3.2.6
 
-Version 3.2.5 (build 7) rebuilds the supplied icon concept in Apple Icon Composer with 40 individually editable vector layers: a colorful Maps-inspired surface peeling back to reveal an Omega blueprint. The artwork fills the system mask without a white outer border. Settings branding uses the same artwork. This is an artwork-only update; phone behavior was last checked on 3.2.1. The phone remains disconnected.
+Version 3.2.6 (build 8) rebuilds the supplied icon concept in Apple Icon Composer with 40 individually editable vector layers: a colorful Maps-inspired surface peeling back to reveal an Omega blueprint. The artwork fills the system mask without a white outer border. Settings branding uses the same artwork. This is an artwork-only update; phone behavior was last checked on 3.2.1. The phone remains disconnected.
 
 ## Version 3.2.1
 
