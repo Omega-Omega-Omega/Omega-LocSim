@@ -1,9 +1,11 @@
-# Individual vector Maps peel / Omega schematic
+# Complete map, shared peel mask, centered Omega
 
-Version 3.2.4 (build 6). Active Icon Composer document: `../../StikDebug/OmegaLocSimPeel.icon`.
+Version 3.2.5 (build 7). Active document: `../../StikDebug/OmegaLocSimPeel.icon`.
 
-36 individually editable SVG geometry layers in four groups: six navigation elements, one peeling sheet, nine map elements, and an Omega outline with 19 separate construction guides. No raster assets, embedded images, SVG gradients, filters, opacity, or painted shadows are in the active icon source. Native Composer fills, translucency, refraction, and shadows supply the appearance. The 19 diagram guides retain native opacity with glass disabled to avoid heavy beveled edges; the other 17 elements use glass.
+The complete reference-inspired map is built from 18 independent vector elements in `CompleteMap.icon`. The production icon applies exactly the same peel path to each, including the navigation medallion. Two separate vectors form the peel underside/lip, with native Composer shadow. The schematic has an Omega outline and 19 individual guides: 40 total layers in four groups. No raster artwork or embedded image is used by either document.
 
-Default, Dark, ClearLight, ClearDark, and TintedDark were rendered with Apple's ictool. Default and clear-dark were also checked at 60 pixels. The Composer UI opened and saved all 36 layers in four groups without warnings. The Home Screen appearance on a physical phone remains unverified for this update; the phone was left disconnected.
+The Omega has a symmetric outline around x=512. Its geometric bounds are x=140...884, y=182...842, centered at (512,512). The reveal is asymmetric but does not move or distort the underlying Omega.
 
-The supplied reference remains `../omega-locsim-icon-source.jpg`. The prior raster composition remains in `previous-flattened.icon`, outside the active document. Git history preserves the eight-layer 3.2.3 revision. Settings uses generated 80/160/240-pixel branding exports; Xcode generates compatibility rasters from the vector source. These outputs are not source artwork layers.
+Native fill specializations define both Default and Dark. A simultaneous base fill overrides specializations, so no layer uses both. Dark map areas are charcoal, the corridor/lens blue, and arrow/Omega white. Native glass, translucency and shadows supply the surface treatment. Fine schematic guides use plain vectors for clarity.
+
+Reviewed complete-map and peeled light/dark exports, plus clear/tinted modes and 60-pixel previews. Opened and saved in Icon Composer. Build 7 is packaged but not installed; the phone remains disconnected. Settings and compatibility PNGs are generated outputs, not source artwork. Historical designs remain in Git history and `previous-flattened.icon`.

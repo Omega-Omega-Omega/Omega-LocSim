@@ -1,429 +1,856 @@
 {
-  "features": [
-    "refractivity"
-  ],
-  "fill": {
-    "linear-gradient": [
-      "extended-srgb:0.00000,0.72157,0.98824,1.00000",
-      "extended-srgb:0.03137,0.25098,0.96863,1.00000"
-    ]
-  },
-  "groups": [
+  "fill-specializations" : [
     {
-      "layers": [
-        {
-          "fill": {
-            "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
-          },
-          "glass": true,
-          "image-name": "Navigation-arrow.svg",
-          "name": "Navigation arrow",
-          "opacity": 1,
-          "fill-specializations": [
-            {
-              "appearance": "dark",
-              "value": {
-                "solid": "extended-srgb:1,1,1,1"
-              }
-            }
-          ]
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.08627,0.46667,1.00000,1.00000"
-          },
-          "glass": true,
-          "image-name": "Navigation-lens.svg",
-          "name": "Navigation lens",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:1.00000,0.62353,0.80000,1.00000"
-          },
-          "glass": true,
-          "image-name": "Pink-rim-accent.svg",
-          "name": "Pink rim accent",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.63529,0.91373,0.57647,1.00000"
-          },
-          "glass": true,
-          "image-name": "Green-rim-accent.svg",
-          "name": "Green rim accent",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:1.00000,0.83137,0.31765,1.00000"
-          },
-          "glass": true,
-          "image-name": "Gold-rim-accent.svg",
-          "name": "Gold rim accent",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
-          },
-          "glass": true,
-          "image-name": "Navigation-rim.svg",
-          "name": "Navigation rim",
-          "opacity": 1
-        }
-      ],
-      "name": "Navigation glass",
-      "refractivity": {
-        "depth": 0.15,
-        "enabled": true,
-        "strength": 0.35
-      },
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.3
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.12
+      "value" : {
+        "linear-gradient" : [
+          "extended-srgb:0.00000,0.66275,0.96471,1.00000",
+          "extended-srgb:0.08627,0.26667,0.83922,1.00000"
+        ]
       }
     },
     {
-      "layers": [
-        {
-          "fill": {
-            "solid": "extended-srgb:0.91765,0.94902,1.00000,1.00000"
-          },
-          "glass": true,
-          "image-name": "Peeling-glass-sheet.svg",
-          "name": "Peeling glass sheet",
-          "opacity": 1
-        }
-      ],
-      "name": "Peeling glass",
-      "refractivity": {
-        "depth": 0.15,
-        "enabled": true,
-        "strength": 0.35
-      },
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.3
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.25
-      }
-    },
-    {
-      "layers": [
-        {
-          "fill": {
-            "solid": "extended-srgb:0.96078,1.00000,0.90980,1.00000"
-          },
-          "glass": true,
-          "image-name": "Outer-road.svg",
-          "name": "Outer road",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
-          },
-          "glass": true,
-          "image-name": "Road-centerline.svg",
-          "name": "Road centerline",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.83922,0.96078,0.73725,1.00000"
-          },
-          "glass": true,
-          "image-name": "Curving-road.svg",
-          "name": "Curving road",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:1.00000,0.83922,0.25882,1.00000"
-          },
-          "glass": true,
-          "image-name": "Diagonal-highway.svg",
-          "name": "Diagonal highway",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.96078,0.46275,0.69804,1.00000"
-          },
-          "glass": true,
-          "image-name": "Neighborhood.svg",
-          "name": "Neighborhood",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.40392,0.84314,0.38039,1.00000"
-          },
-          "glass": true,
-          "image-name": "East-park.svg",
-          "name": "East park",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.14118,0.65098,0.98824,1.00000"
-          },
-          "glass": true,
-          "image-name": "Waterway.svg",
-          "name": "Waterway",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.40392,0.84314,0.38039,1.00000"
-          },
-          "glass": true,
-          "image-name": "West-park.svg",
-          "name": "West park",
-          "opacity": 1
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.96078,0.96863,0.95294,1.00000"
-          },
-          "glass": true,
-          "image-name": "Map-foundation.svg",
-          "name": "Map foundation",
-          "opacity": 1
-        }
-      ],
-      "name": "Individual map elements",
-      "refractivity": {
-        "depth": 0.15,
-        "enabled": true,
-        "strength": 0.35
-      },
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.08
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.18
-      }
-    },
-    {
-      "layers": [
-        {
-          "fill": {
-            "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
-          },
-          "glass": true,
-          "image-name": "Omega-outline.svg",
-          "name": "Omega outline",
-          "opacity": 1,
-          "fill-specializations": [
-            {
-              "appearance": "dark",
-              "value": {
-                "solid": "extended-srgb:1,1,1,1"
-              }
-            }
-          ]
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-vertical-128.svg",
-          "name": "Grid vertical 128",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-horizontal-128.svg",
-          "name": "Grid horizontal 128",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-vertical-256.svg",
-          "name": "Grid vertical 256",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-horizontal-256.svg",
-          "name": "Grid horizontal 256",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-vertical-384.svg",
-          "name": "Grid vertical 384",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-horizontal-384.svg",
-          "name": "Grid horizontal 384",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-vertical-512.svg",
-          "name": "Grid vertical 512",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-horizontal-512.svg",
-          "name": "Grid horizontal 512",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-vertical-640.svg",
-          "name": "Grid vertical 640",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-horizontal-640.svg",
-          "name": "Grid horizontal 640",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-vertical-768.svg",
-          "name": "Grid vertical 768",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-horizontal-768.svg",
-          "name": "Grid horizontal 768",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-vertical-896.svg",
-          "name": "Grid vertical 896",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Grid-horizontal-896.svg",
-          "name": "Grid horizontal 896",
-          "opacity": 0.25
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Construction-circle-240.svg",
-          "name": "Construction circle 240",
-          "opacity": 0.4
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Construction-circle-368.svg",
-          "name": "Construction circle 368",
-          "opacity": 0.4
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Ascending-diagonal.svg",
-          "name": "Ascending diagonal",
-          "opacity": 0.3
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Descending-diagonal.svg",
-          "name": "Descending diagonal",
-          "opacity": 0.3
-        },
-        {
-          "fill": {
-            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
-          },
-          "glass": false,
-          "image-name": "Construction-frame.svg",
-          "name": "Construction frame",
-          "opacity": 0.4
-        }
-      ],
-      "name": "Omega and individual construction guides",
-      "refractivity": {
-        "depth": 0.15,
-        "enabled": false,
-        "strength": 0.35
-      },
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0
-      },
-      "translucency": {
-        "enabled": false,
-        "value": 0.1
+      "appearance" : "dark",
+      "value" : {
+        "solid" : "extended-srgb:0.06275,0.09020,0.13333,1.00000"
       }
     }
   ],
-  "supported-platforms": {
-    "squares": [
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.78431,0.81961,0.87843,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Peel-lip.svg",
+          "name" : "Peel lip",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.89804,0.92941,0.96471,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.50588,0.52941,0.58039,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Peel-underside.svg",
+          "name" : "Peel underside",
+          "opacity" : 1
+        }
+      ],
+      "name" : "Peel edge and native shadow",
+      "refractivity" : {
+        "depth" : 0.1,
+        "enabled" : false,
+        "strength" : 0.2
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.65
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.08
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Navigation-arrow.svg",
+          "name" : "Navigation arrow",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.00000,0.52157,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.00000,0.52157,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Navigation-lens.svg",
+          "name" : "Navigation lens",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.95686,0.63529,0.83922,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.51765,0.53333,0.56471,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Pink-rim-reflection.svg",
+          "name" : "Pink rim reflection",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.46667,0.87451,0.53725,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.54118,0.55686,0.58039,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Green-rim-reflection.svg",
+          "name" : "Green rim reflection",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:1.00000,0.86667,0.21569,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.57255,0.58824,0.61569,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Gold-rim-reflection.svg",
+          "name" : "Gold rim reflection",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.29804,0.66667,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.25490,0.70980,0.96863,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Blue-rim-reflection.svg",
+          "name" : "Blue rim reflection",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.92941,0.96078,0.98039,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.64314,0.65882,0.68627,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Navigation-rim.svg",
+          "name" : "Navigation rim",
+          "opacity" : 1
+        }
+      ],
+      "name" : "Masked navigation",
+      "refractivity" : {
+        "depth" : 0.1,
+        "enabled" : false,
+        "strength" : 0.2
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.3
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.1
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.95686,1.00000,0.96078,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.70980,0.70980,0.74902,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Interchange-outer-lane.svg",
+          "name" : "Interchange outer lane",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.95686,1.00000,0.96078,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.70980,0.70980,0.74902,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Interchange-inner-lane.svg",
+          "name" : "Interchange inner lane",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.45098,0.87451,0.52157,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.25490,0.25490,0.29020,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Corner-interchange.svg",
+          "name" : "Corner interchange",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.89020,0.89804,0.89804,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.16078,0.16471,0.18824,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Lower-vertical-road.svg",
+          "name" : "Lower vertical road",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.00000,0.54510,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.00000,0.54118,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Route-corridor.svg",
+          "name" : "Route corridor",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.96078,0.96471,0.95686,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.21961,0.21961,0.25098,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Diagonal-road.svg",
+          "name" : "Diagonal road",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:1.00000,0.80784,0.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.06667,0.07059,0.09020,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Gold-district.svg",
+          "name" : "Gold district",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.95686,0.40784,0.71373,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.08235,0.08627,0.10588,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Pink-district.svg",
+          "name" : "Pink district",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.15294,0.80000,0.28235,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.09020,0.09412,0.11765,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "West-park.svg",
+          "name" : "West park",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.15294,0.80000,0.28235,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.06275,0.06667,0.08627,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "East-park.svg",
+          "name" : "East park",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.94902,0.95294,0.94902,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.20392,0.20392,0.23137,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Map-foundation.svg",
+          "name" : "Map foundation",
+          "opacity" : 1
+        }
+      ],
+      "name" : "Masked complete map",
+      "refractivity" : {
+        "depth" : 0.1,
+        "enabled" : false,
+        "strength" : 0.2
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.02
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.05
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.93333,0.95686,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Omega-outline.svg",
+          "name" : "Omega outline",
+          "opacity" : 1
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-vertical-128.svg",
+          "name" : "Grid vertical 128",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-horizontal-128.svg",
+          "name" : "Grid horizontal 128",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-vertical-256.svg",
+          "name" : "Grid vertical 256",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-horizontal-256.svg",
+          "name" : "Grid horizontal 256",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-vertical-384.svg",
+          "name" : "Grid vertical 384",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-horizontal-384.svg",
+          "name" : "Grid horizontal 384",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-vertical-512.svg",
+          "name" : "Grid vertical 512",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-horizontal-512.svg",
+          "name" : "Grid horizontal 512",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-vertical-640.svg",
+          "name" : "Grid vertical 640",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-horizontal-640.svg",
+          "name" : "Grid horizontal 640",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-vertical-768.svg",
+          "name" : "Grid vertical 768",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-horizontal-768.svg",
+          "name" : "Grid horizontal 768",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-vertical-896.svg",
+          "name" : "Grid vertical 896",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Grid-horizontal-896.svg",
+          "name" : "Grid horizontal 896",
+          "opacity" : 0.25
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Construction-circle-240.svg",
+          "name" : "Construction circle 240",
+          "opacity" : 0.4
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Construction-circle-368.svg",
+          "name" : "Construction circle 368",
+          "opacity" : 0.4
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Ascending-diagonal.svg",
+          "name" : "Ascending diagonal",
+          "opacity" : 0.3
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Descending-diagonal.svg",
+          "name" : "Descending diagonal",
+          "opacity" : 0.3
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "extended-srgb:0.85098,0.96078,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:0.47059,0.54902,0.65882,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Construction-frame.svg",
+          "name" : "Construction frame",
+          "opacity" : 0.4
+        }
+      ],
+      "name" : "Centered symmetric Omega schematic",
+      "refractivity" : {
+        "depth" : 0.15,
+        "enabled" : false,
+        "strength" : 0.35
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.1
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
       "iOS"
     ]
   }

@@ -1,0 +1,406 @@
+{
+  "features": [
+    "refractivity"
+  ],
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "extended-srgb:0.00000,0.66275,0.96471,1.00000",
+          "extended-srgb:0.08627,0.26667,0.83922,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "extended-srgb:0.06275,0.09020,0.13333,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Masked navigation",
+      "layers": [
+        {
+          "name": "Navigation arrow",
+          "image-name": "Navigation-arrow.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Navigation lens",
+          "image-name": "Navigation-lens.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.00000,0.52157,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.00000,0.52157,1.00000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pink rim reflection",
+          "image-name": "Pink-rim-reflection.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.95686,0.63529,0.83922,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.51765,0.53333,0.56471,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Green rim reflection",
+          "image-name": "Green-rim-reflection.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.46667,0.87451,0.53725,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.54118,0.55686,0.58039,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gold rim reflection",
+          "image-name": "Gold-rim-reflection.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:1.00000,0.86667,0.21569,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.57255,0.58824,0.61569,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Blue rim reflection",
+          "image-name": "Blue-rim-reflection.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.29804,0.66667,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.25490,0.70980,0.96863,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Navigation rim",
+          "image-name": "Navigation-rim.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.92941,0.96078,0.98039,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.64314,0.65882,0.68627,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.1
+      },
+      "refractivity": {
+        "enabled": false,
+        "strength": 0.2,
+        "depth": 0.1
+      }
+    },
+    {
+      "name": "Masked complete map",
+      "layers": [
+        {
+          "name": "Interchange outer lane",
+          "image-name": "Interchange-outer-lane.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.95686,1.00000,0.96078,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.70980,0.70980,0.74902,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Interchange inner lane",
+          "image-name": "Interchange-inner-lane.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.95686,1.00000,0.96078,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.70980,0.70980,0.74902,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Corner interchange",
+          "image-name": "Corner-interchange.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.45098,0.87451,0.52157,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.25490,0.25490,0.29020,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lower vertical road",
+          "image-name": "Lower-vertical-road.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.89020,0.89804,0.89804,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.16078,0.16471,0.18824,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Route corridor",
+          "image-name": "Route-corridor.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.00000,0.54510,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.00000,0.54118,1.00000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Diagonal road",
+          "image-name": "Diagonal-road.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.96078,0.96471,0.95686,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.21961,0.21961,0.25098,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gold district",
+          "image-name": "Gold-district.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:1.00000,0.80784,0.00000,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.06667,0.07059,0.09020,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pink district",
+          "image-name": "Pink-district.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.95686,0.40784,0.71373,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.08235,0.08627,0.10588,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "West park",
+          "image-name": "West-park.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.15294,0.80000,0.28235,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.09020,0.09412,0.11765,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "East park",
+          "image-name": "East-park.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.15294,0.80000,0.28235,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.06275,0.06667,0.08627,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Map foundation",
+          "image-name": "Map-foundation.svg",
+          "glass": true,
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "extended-srgb:0.94902,0.95294,0.94902,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:0.20392,0.20392,0.23137,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.02
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.05
+      },
+      "refractivity": {
+        "enabled": false,
+        "strength": 0.2,
+        "depth": 0.1
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "iOS"
+    ]
+  }
+}
