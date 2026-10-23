@@ -1,64 +1,78 @@
-# Omega LocSim implementation and validation
+# Omega LocSim 3.2 implementation and validation
 
-The signed release passed an on-device smoke session on iPhone 15 Pro Max, iOS 27.0: stationary Set Location, road-route movement, Pause, Edit Route/Apply & Resume with the remaining stop unchanged, End holding, and Restore clearing simulated state without error. These are app-reported outcomes and observed UI/progress changes; another app's GPS was not independently checked. Broader physical acceptance remains below. Source is maintained in the [GitHub fork](https://github.com/Omega-Omega-Omega/Omega-LocSim); no GitHub Release is published.
+The 3.2 development build has passed actual device-bridge foreground and ten-minute background acceptance on iPhone 15 Pro Max, iOS 27.0. Optional live road metadata is currently unavailable; fixture success is recorded separately. The final **3.2.0 build 2 signed Release** was built, packaged, installed, and launched. Inventory verified **Omega LocSim `com.omega.locsim` 3.2.0 (2)**; the freshly installed artifact passed autocomplete resolution and Set Location/Restore smoke checks.
 
-## Source and branding
+## Source, identity, and artwork
 
-Derived from [StikDebug](https://github.com/StikDebug/StikDebug) commit `17b1e1d90d602a228de663a10efa987a9f9e547b`. Live upstream HEAD was verified at that commit. The original README is preserved byte-for-byte as `README.upstream.md`; original author notices, LICENSE and device bridge remain. AGPL-3.0 applies.
+Based on [StikDebug](https://github.com/StikDebug/StikDebug) commit `17b1e1d90d602a228de663a10efa987a9f9e547b`, with [idevice](https://github.com/jkcoxson/idevice) for device communication. `README.upstream.md`, original notices, and [AGPL-3.0](LICENSE) remain preserved.
 
-The owner chose **Omega LocSim** and supplied the icon. `branding/omega-locsim-icon-source.jpg` is the unchanged 1254-pixel JPEG, SHA256 `9b28537f310494d2f9d32e02d1eec790f5fa7bf5cac6cdde1290a73b8562f124`. App icon and Settings image assets use full-square resizes of that artwork. The compiled iPhone icon was decoded and visually inspected; built Info.plist selects `OmegaLocSim` as the primary icon and `Omega LocSim` as its display name.
+Omega LocSim uses `com.omega.locsim` and `group.com.omega.locsim`, including legacy group-storage callers. StikDebug URL registrations were removed to avoid intercepting the original app's links. Internal project/module names, protocol Bonjour declarations, preferences, and file identifiers retain compatibility. Current source version is **3.2.0, build 2**.
 
-The installed app has its own `com.omega.locsim` bundle identifier and `group.com.omega.locsim` app group, including all legacy group-storage callers. StikDebug URL registrations are removed to avoid intercepting the original app’s links. Internal project/module names, protocol Bonjour declarations, saved preference keys, shared file-format identifiers and upstream assets remain compatible. The installed app was verified as `com.omega.locsim`, version 3.1.15, build 1.
+The owner requested a new icon from scratch. `StikDebug/OmegaLocSimGlass.icon` contains original Ω and navigation SVG layers assembled, previewed, and saved with Apple's Icon Composer. Native group glass effects and a cyan-to-cobalt background produce Default, Dark, and tintable appearances. Both build configurations select `OmegaLocSimGlass`; the synchronized target includes the document automatically. `OmegaLocSimBrand.imageset` uses resized Default/Dark renders for Settings. Original SVGs, workflow details, and Apple references are in [branding/omega-locsim-glass/README.md](branding/omega-locsim-glass/README.md).
 
-## Implemented behavior
+Isolated Xcode 27.1 `actool` compilation passed for iPhone/iPad, deployment target 17.4. Generated metadata names `OmegaLocSimGlass`; `Assets.car` contains native light/dark/tintable icon stacks and both SVGs. The generated iPhone fallback was decoded and visually checked. The prior supplied JPEG, raster icon, and upstream `StikDebug.icon` remain preserved; they are not the selected new icon.
 
-- Native full-screen MapKit map, translucent glass sheet, centered place/route headers, compact stop rows, search, stationary spoofing, Directions, automatic road-route preview and compact Go tile. The active screen has a destination/status banner, pitched heading-follow map and three-column arrival/time/distance card. Speed expands on demand; route actions live in its menu. The owner’s three Maps screenshots guide the layout.
-- Native Liquid Glass on map controls, search, the main sheet, route actions and setup branding/actions on iOS 26+. System glass and semantic surfaces preserve readable contrast; earlier systems use native material/bordered fallbacks.
-- Ordered driving legs and multiple stops, explicit Add Stop/replacement, drag reordering, cancellation of obsolete requests and reuse of unchanged legs. No Overpass lookup or road-speed matching pipeline.
-- One adjustable speed in mph or km/h; changing speed does not recalculate geometry.
-- Session-owned playback and periodic stationary holding. Only one transport call can run at a time. Known transport duration contributes fully to the next movement step; excess scheduling gaps are treated separately.
-- Pause intent is immediate. A synchronous call already started must finish, and its accepted coordinate or failure is recorded honestly. End and Restore wait behind that call.
-- Edit pauses and waits for the accepted position, then changes remaining stops. Resume cannot race that edit preparation. Cancel or failed replacement keeps the old route/progress paused and preserves the draft on Apply failure.
-- Arrival and End retain position. Restore clears simulation on success and reports a failure without pretending restoration succeeded. Session errors also open a native Simulation Unavailable alert with OK and Settings actions on the main sheet; the inline error remains.
-- Follow/recenter uses accepted simulated coordinates; user panning stops following. Intermediate stops have map markers.
-- Existing pairing, tunnel, disk-image mount, background managers, bookmark storage and coordinate import parser are retained. Unrelated debugger tools are absent from the main interface.
+## Application behavior
 
-## Verified on October 23, 2026
+[FEATURES.md](FEATURES.md) is the full user-facing control inventory.
 
-| Check | Evidence |
+- Native MapKit browsing, autocomplete and explicit search, selected-place card, stationary spoofing, ordered driving stops, automatic route preview, and active trip controls. Home/School/Work/custom pins and rename/remove controls supplement persistent bookmarks and coordinate import.
+- Native Liquid Glass on iOS 26+ with earlier material/bordered fallbacks, light/dark semantic colors, accessibility labels, flexible scrolling, and Reduce Transparency handling.
+- One measurement preference controls distances and speeds. Road Limits applies per-segment speed metadata; Constant applies the slider speed. Missing/unloaded sections use fallback speed. Unit changes preserve physical speed.
+- Leave Later arms a route at its accepted start. Intermediate visits, simulated red lights, remaining waits, skips, Pause/Resume, and ETA share the session timing model. Final arrival holds indefinitely until an explicit End or Restore.
+- Session-owned movement and stationary holding serialize all device commands. Accepted position is authoritative; an already-started synchronous bridge call finishes before the next command. Transport duration contributes to movement timing; excess scheduling gaps are handled separately.
+- Pause intent is immediate. Edit waits for settled accepted progress, anchors there, and edits remaining stops. Apply retains an active wait and protects original progress/draft on failure. End/Restore invalidate pending edit preparation; restoration clears state only on success.
+- Metadata updates can arrive while previewing or playing without resetting progress. In-flight movement boundaries prevent late metadata from moving backward to a newly discovered light. Completed/past events remain excluded. Import and draft replacement invalidate stale geometry/metadata work.
+- Native Simulation Unavailable alerts on the main sheet expose device errors with OK/Settings actions, while inline feedback remains.
+
+## Optional road metadata
+
+`TrafficLightPlanner` queries only the approved `https://overpass-api.de/api/interpreter` endpoint. No mirror is enabled. Mapped Road Details is off by default and its UI explains that route coordinates are sent for OpenStreetMap road/light lookup. Traffic-light sampling is simulated, not live signal phase information.
+
+The pipeline fetches the first 8 km, then 20 km corridors, capped at 300 km. It publishes each successful chunk independently; Go does not depend on it. Geometry simplification retains bends within 10 m. Local road matching considers proximity, direction, one-way restrictions, and node membership to reject crossing-road signals. Mapped `maxspeed` values support km/h, mph, and knots; unsupported, conditional, and lane-dependent values fall back to marked estimates. Road-class estimates and user fallback fill the remaining profile. Probability sampling is stable for a route, with exact 0/100% behavior and red waits of 5–90 seconds.
+
+The client sends a custom identifying User-Agent, URL-encoded POST body, and JSON Accept header. At most three attempts run sequentially. Transient gateway/network failures wait 2/4 seconds; 429 waits at least 30 seconds. Retry-After seconds/date are respected up to the bounded automatic wait; longer cooldowns stop automatic work. All waits and requests are cancellable. Only successfully decoded responses enter the one-hour, bounded in-memory cache. Failed later chunks leave earlier published metadata usable, with partial/fallback coverage text and Retry.
+
+Direct public Cupertino probes on October 23 returned a concrete primary HTTP 502 capacity/queue-full response, then timeouts. A proposed mirror was probed separately with public fixture coordinates and also timed out through curl and Apple's URLSession; it remains disabled. No real road/signal JSON was received. **Live provider-to-route speed/signal matching remains unverified.** Fixture decoding/matching/transport tests do not establish network availability. Investigation files remain local in `../work/road-network/`.
+
+## Background execution
+
+The retained background support now builds a valid fixed-format PCM buffer and explicitly zeroes every channel for silence. Audio interruption, media-services reset, configuration change, and stopped-engine/player recovery are handled. Location support starts an authorized foreground session with either While Using or Always access, requests an upgrade where appropriate, and falls back to audio if location is denied. At least one keep-alive preference stays enabled. Diagnostic state is available to the acceptance runner.
+
+The measured background acceptance below used both audio/location support and Always authorization. It is evidence for that session and device, rather than indefinite operation under every interruption or permission combination.
+
+## Validation recorded October 23, 2026
+
+| Check | Result and practical scope |
 |---|---|
-| Xcode setup | Xcode 27.1 (27A9275); first-launch status passed; iOS SDK 27.1 available |
-| Unchanged upstream | Debug generic iPhone build succeeded without signing |
-| Modified app | Debug and Release generic iPhone builds succeeded without signing; bundled arm64 device bridge linked |
-| Signed release | Xcode Personal Team development-signed Release build succeeded (`../work/signed-build.log`); incremental native-error-alert update also built successfully (`../work/final-signed-build.log`) |
-| Physical install | `devicectl` reports successful installation of `com.omega.locsim`; installed-app inventory reports Omega LocSim 3.1.15, build 1 (`../work/install-result.json`, `../work/installed-omega.log`) |
-| Physical launch | `devicectl` reports successful launch on the connected iPhone 15 Pro Max, iOS 27.0 (`../work/device-launch.json`, `../work/device-details.log`) |
-| Physical UI | Redesigned place, Directions and active-route states observed on the physical phone through Device Hub |
-| Pairing recovery / stationary | Initial provider error 3 was resolved after refreshing pairing; Set Location then reported success |
-| Road-route Go | Entered Simulating; remaining distance visibly decreased from 2.6 to 2.1 km |
-| Pause / edit / apply | Pause used; Edit Route opened from the held position; Apply & Resume accepted the unchanged remaining stop; progress continued from 2.1 to 1.6 km. Actual stop-list changes were not tested |
-| End Route | Removed the route and retained stationary Holding location state |
-| Restore Real Location | Simulated marker, Holding location label and Restore control disappeared without an error. External-app GPS was not independently checked |
-| Engine tests | 22 passed: 13 playback XCTest, 4 geometry XCTest, 5 planner Swift Testing checks (`../work/final-engine-tests.log`) |
-| Delayed transport | Two-second transport at selected 10 m/s measured approximately 10 m/s, replacing the reproduced approximately 3.9 m/s drift |
-| Regression coverage | Holding while paused; resume cancellation of holding; paused in-flight failure; honest edit anchor; Edit/Resume race; End/Restore serialization; restore outcomes; failed replacement retention; arrival; stop teardown; cancellation and cache isolation |
-| Geometry | Empty/single-point paths, unequal segments, repeated coordinates, arrival bounds and date-line crossing |
-| Simulator UI | Actual map/view/planner/session sources rendered in an isolated harness with a fake device transport. Public Apple Park–Cupertino Library routing returned live road geometry. This is not physical spoofing validation. |
-| Icon | Original hash matched; opaque asset sizes checked; compiled primary icon decoded and visually inspected |
+| Toolchain/device target | Xcode 27.1 with iOS SDK 27.1; the real app links the bundled physical-iOS arm64 bridge. |
+| Final engine run | **76 passed, 0 failures:** 71 XCTest plus 5 Swift Testing checks, including 17 road metadata tests. Evidence: `../work/omega-3.2-final-tests.log`. |
+| Foreground physical acceptance | Nine checks passed on iPhone 15 Pro Max, iOS 27.0: stationary; scheduled wait/Pause/Leave Now; natural intermediate visit; skipped visit; natural red light; skipped red light; movement/Pause/Resume/runtime speed-profile update; End holding; Restore. Evidence: `../work/omega-foreground-acceptance.json`. |
+| Foreground scope | The runner used the actual device bridge with controlled public coordinates, short visits, injected light decisions, and an injected road-speed profile. “Live road metadata” in its check name means a runtime profile update, not a successful Overpass fetch. |
+| Ten-minute physical background | Route check passed in 605.06 s: 1,122 accepted movement updates, 589.0468 m progress at selected 1 m/s, maximum report/progress gap 5.3309 s. Audio and location stayed running with Always authorization and no reported error. Restore passed in 0.080 s and `restored` is true. Evidence: `../work/omega-background-acceptance.json`. |
+| Simulator UI | Actual map/view/planner/session sources in a separate harness with fake device transport. Interactive checks covered live autocomplete/resolution; Home pin creation/rename/removal; third stop; one-minute visit and ETA change; Leave Later/date control; 0/100% probability; Start while metadata loads; scheduled countdown/Leave Now; speed-mode selection; edit/apply retaining the visit. Evidence: `../work/ui-preview/omega-3.2-ui-validation.md`. |
+| Simulator limits | Settings uses setup stubs; its units preference was verified separately on the physical phone. Numeric speed-slider adjustment was not established by that harness. No real device FFI or background endurance is inferred from simulator screenshots. |
+| Live road service | Unavailable/unverified as described above. Fixture tests pass for decoding, unit/directional matching, crossing-road rejection, estimates, simplification, stable probability, retry/cache behavior, and partial retention. |
+| Retry cancellation | A real 30-second rate-limit sleep was cancelled in approximately 0.001 s; no next request or publication occurred. A first successful chunk stayed published when all later retries failed. |
+| Final Release build/packages | **3.2.0 build 2 signed Release build succeeded** (`../work/omega-3.2-final-release-build.log`). Final signed/unsigned IPA packages were separately verified. |
+| Final physical install/launch | `devicectl` installation and launch succeeded. Installed-app inventory confirms **Omega LocSim, `com.omega.locsim`, 3.2.0 (2)**. Evidence: `../work/omega-3.2-final-release-install.json`, `../work/omega-3.2-final-release-launch.json`, `../work/omega-3.2-final-installed-app.json`. |
+| Final installed-release smoke | Apple Park autocomplete resolved correctly. Set Location displayed the simulated arrow and Holding location; Restore cleared both without error. Existing pairing remained usable after the update. Simulation was cleared after the check. |
+| Physical manual units / route controls | Metric showed 48 km/h and 1.3 km; US Imperial showed 30 mph and 0.8 mi. Go remained usable during metadata loading with fallback speed; progress decreased from 0.8 to 0.5 mi. Pause and Resume changed state back to Simulating; Road Limits was selected again; slider endpoints of 1 and 85 mph changed ETA. Omega reached Arrived at 0 min/0 ft, and Restore cleared simulation. Live Overpass data remains unverified. |
+| External GPS / Restore | Apple Maps recentered its blue user dot at the public test area, then visibly moved through successive positions along one short public route while Omega was backgrounded and reached the public endpoint. Restore returned the Maps dot to the real region. Stationary spoofing, movement on this route, and restoration were independently observed. No continuous GPS recording was collected; private real-location details/screenshots are omitted. |
 
-The device archive contains 900 arm64 Mach-O objects targeting iOS, with no simulator slice. The real app is built for iPhone. The simulator harness replaces only device/setup dependencies and is excluded from the delivered app.
+Earlier 3.1.15 physical UI smoke checks also exercised Set Location, a driving route, Pause, Edit Route/Apply & Resume with unchanged remaining stops, End holding, and Restore after refreshed pairing resolved provider error 3. The 3.2 acceptance expands timing and background coverage; the earlier manual checks do not prove every current control on final hardware.
 
-## Repeatable checks
+## Repeatable checks and builds
 
-From the repository root, run the dependency-free isolated engine suite:
+Run the isolated engine suite:
 
 ```sh
 scripts/test-engine.sh
 ```
 
-The script copies the actual engine and test files into a temporary package outside the Documents file-provider directory, runs the checks with Xcode's Swift toolchain, then removes the temporary build. Test-only stubs fail if real device transport is attempted. No new production package is required.
+It copies actual engine/test files into a temporary package outside the Documents file-provider folder, uses Xcode's Swift toolchain, and removes the temporary build. Test stubs fail if real device transport is attempted. No new production package is required. The suite covers geometry, transport/holding/edit serialization, immediate pause races, failed replacement/restore, timing and clock behavior, speed integration, late metadata, units, local library persistence, stale request cancellation, and network retry/partial behavior.
 
-Build an unsigned device release:
+Build an unsigned physical-device release:
 
 ```sh
 xcodebuild -project StikDebug.xcodeproj -scheme StikDebug -configuration Release \
@@ -66,20 +80,10 @@ xcodebuild -project StikDebug.xcodeproj -scheme StikDebug -configuration Release
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-For this run, Xcode Personal Team signing produced the signed release that was installed and launched on the connected phone. For another device/build, select the appropriate Apple signing team and phone in Xcode, or sign the separate unsigned IPA with the chosen sideloading tool. The output named `omega-locsim-unsigned.ipa` remains unsigned; it is separate from the signed build installed in this run.
+For signed installation, choose the appropriate Apple signing team and connected phone in Xcode, or sign a separate unsigned IPA with the chosen sideloading tool. An unsigned IPA remains distinct from the development-signed app. The bundled bridge contains physical iOS arm64 objects and no simulator slice, so simulator UI testing uses a separate harness excluded from the delivered app.
 
-## Physical-device acceptance still required
+## Remaining verification
 
-Owner targets: iPhone 15 Pro Max and iPhone 18 Pro Max, using iOS 27.0 and 27.0.1. The connected physical iPhone 15 Pro Max was verified as iOS 27.0 (24A435), wired, paired, with Developer Mode enabled. Omega LocSim 3.1.15 (build 1), `com.omega.locsim`, is installed and launched through Xcode Personal Team signing. The iPhone 18 Pro Max/version pairing has not been observed. Earlier iLoader sign-in/restart blocks are superseded by this successful Xcode installation.
+Exercise live mapped road/signal data when the provider responds. External movement was observed on one short route; a continuous GPS recording and broader route coverage remain untested. Locked-screen behavior, system interruptions/audio route changes, disconnect/reconnect endurance, prolonged operation beyond this ten-minute session, the second physical phone, and iOS 27.0.1 remain separate checks. Owner targets are iPhone 15 Pro Max and iPhone 18 Pro Max on iOS 27.0/27.0.1; only iPhone 15 Pro Max on iOS 27.0 is established here.
 
-The physical smoke session established the exact app-side observations in the table above. It did not independently verify location in another app. The successful edit application left the remaining stop unchanged; it does not establish actual multi-stop addition/replacement/reordering on the phone. Resumption was exercised through Apply & Resume rather than a separate test of the Resume button.
-
-Still required: independent external-app GPS checks; live speed-slider changes; actual multi-stop edits; arrival; canceled/failed edit and restore recovery on hardware; direct Resume-button coverage; lock/background/disconnection endurance; the second physical phone; and iOS 27.0.1. Record measured background duration and behavior. Indefinite background reliability remains unverified.
-
-Compare browsing, search, place, route-preview and active-route screens against Maps on the target phones, including dark appearance and larger text. Simulator rendering and physical place/Directions/active-route observations are visual evidence, not a verified exact Maps match.
-
-## Source repository and remaining acceptance
-
-Source repository: [GitHub fork](https://github.com/Omega-Omega-Omega/Omega-LocSim). This repository contains the Omega LocSim implementation; no GitHub Release is published. Local `origin` points to this fork and `upstream` points to StikDebug.
-
-Installation, launch and the recorded physical smoke session on iPhone 15 Pro Max are complete. Remaining acceptance covers the explicit untested cases above, second-phone/iOS 27.0.1 validation, and final Maps comparison. No additional iLoader restart or sign-in is required for the completed installation.
+Source repository: [GitHub fork](https://github.com/Omega-Omega-Omega/Omega-LocSim). This repository contains the Omega LocSim implementation; no GitHub Release is published. Private pairing files, account/device identifiers, and device logs are excluded from public delivery.

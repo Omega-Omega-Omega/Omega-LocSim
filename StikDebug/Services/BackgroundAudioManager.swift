@@ -4,6 +4,7 @@
 //
 
 import AVFoundation
+import Darwin
 
 final class BackgroundAudioManager {
     static let shared = BackgroundAudioManager()
@@ -13,12 +14,21 @@ final class BackgroundAudioManager {
     private var isRunning = false
     private var activityCount = 0
     private var healthCheckTimer: Timer?
+    private var isInterrupted = false
+
+    var isKeepingAlive: Bool { isRunning && engine.isRunning && player.isPlaying && !isInterrupted }
 
     private init() {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleInterruption),
             name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleEngineConfigurationChange),
+            name: .AVAudioEngineConfigurationChange,
             object: nil
         )
         NotificationCenter.default.addObserver(
@@ -61,6 +71,7 @@ final class BackgroundAudioManager {
             healthCheckTimer = nil
             player.stop()
             engine.stop()
+            isInterrupted = false
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
@@ -77,10 +88,15 @@ final class BackgroundAudioManager {
             try session.setActive(true)
 
             engine.attach(player)
-            let format = engine.mainMixerNode.outputFormat(forBus: 0)
+            // A fixed valid PCM format also works while the output route is
+            // changing; the engine performs conversion to the hardware format.
+            guard let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1),
+                  let buffer = silenceBuffer(format: format) else {
+                throw NSError(domain: "OmegaBackgroundAudio", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Unable to prepare silent audio"])
+            }
             engine.connect(player, to: engine.mainMixerNode, format: format)
-
-            scheduleSilence()
+            player.scheduleBuffer(buffer, at: nil, options: .loops)
             try engine.start()
             player.play()
         } catch {
@@ -88,17 +104,20 @@ final class BackgroundAudioManager {
         }
     }
 
-    private func scheduleSilence() {
-        let format = engine.mainMixerNode.outputFormat(forBus: 0)
+    private func silenceBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let frameCount = AVAudioFrameCount(format.sampleRate)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
         buffer.frameLength = frameCount
-        // PCM buffer is zero-initialized — pure silence
-        player.scheduleBuffer(buffer, at: nil, options: .loops)
+        // Explicitly clear every audio channel; newly allocated PCM memory must
+        // never be assumed to contain silence.
+        for audioBuffer in UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList) {
+            if let data = audioBuffer.mData { memset(data, 0, Int(audioBuffer.mDataByteSize)) }
+        }
+        return buffer
     }
 
-    // Runs every 2 seconds to reclaim the session if continuous game audio
-    // holds it and the interruption-ended notification never fires.
+    // Recover a stopped player or engine without taking audio focus away from
+    // phone calls and other active system interruptions.
     private func startHealthCheck() {
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             self?.recoverIfNeeded()
@@ -108,34 +127,40 @@ final class BackgroundAudioManager {
     }
 
     private func recoverIfNeeded() {
-        guard isRunning, !engine.isRunning || !player.isPlaying else { return }
+        guard isRunning, !isInterrupted, !engine.isRunning || !player.isPlaying else { return }
+        if !engine.isRunning || player.engine == nil {
+            // Configuration changes and failed session activation can discard
+            // scheduled buffers; rebuild so recovery always schedules silence.
+            startEngine()
+            return
+        }
         do {
             try AVAudioSession.sharedInstance().setActive(true)
-            if !engine.isRunning {
-                try engine.start()
-            }
             player.play()
         } catch {
-            // Session still held by the game — will retry next tick
+            // The system still owns the session; retry on the next health check.
         }
     }
 
     @objc private func handleInterruption(_ notification: Notification) {
         guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue),
-              type == .ended,
-              isRunning else { return }
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isInterrupted = type == .began
+            if type == .ended { self.recoverIfNeeded() }
+        }
+    }
 
-        // Best-effort immediate resume; health check will cover failures.
-        try? AVAudioSession.sharedInstance().setActive(true)
-        if !engine.isRunning { try? engine.start() }
-        player.play()
+    @objc private func handleEngineConfigurationChange() {
+        DispatchQueue.main.async { [weak self] in self?.recoverIfNeeded() }
     }
 
     @objc private func handleMediaServicesReset() {
-        guard isRunning else { return }
-        engine = AVAudioEngine()
-        player = AVAudioPlayerNode()
-        startEngine()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.isInterrupted = false
+            self.startEngine()
+        }
     }
 }

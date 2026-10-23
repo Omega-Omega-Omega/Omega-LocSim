@@ -1,0 +1,271 @@
+#if DEBUG
+import Foundation
+import CoreLocation
+import Combine
+
+/// Explicit, debug-build-only hardware checks. Nothing runs during normal app
+/// launches. All locations are public Cupertino fixtures, never recorded GPS.
+@MainActor
+enum OmegaDeviceAcceptanceRunner {
+    private static var didRun = false
+
+    static func runIfRequested() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        let background = arguments.contains("--omega-background-acceptance")
+        guard !didRun, background || arguments.contains("--omega-device-acceptance") else { return }
+        didRun = true
+        await Run(background: background).execute()
+    }
+
+    @MainActor
+    private final class Run {
+        struct Check: Codable {
+            var name: String
+            var status: String
+            var seconds: Double = 0
+            var detail: String? = nil
+        }
+        struct Report: Codable {
+            var schema = 1
+            var mode: String
+            var startedAt = Date()
+            var finishedAt: Date?
+            var status = "running"
+            var checks: [Check] = []
+            var elapsedSeconds = 0.0
+            var acceptedLocationUpdates = 0
+            var acceptedMovementUpdates = 0
+            var traveledMeters = 0.0
+            var maximumTraveledMeters = 0.0
+            var backgroundDistanceMeters: Double?
+            var maximumProgressGapSeconds = 0.0
+            var restored = false
+            var limitation = "Checks device-command acceptance and app state; does not independently verify other apps' GPS."
+        }
+        enum Failure: Error { case assertion(String), timedOut(String) }
+
+        let background: Bool
+        let session = LocationSimulationSession.shared
+        var report: Report
+        var observer: AnyCancellable?
+        var movementObserver: AnyCancellable?
+        var progressTask: Task<Void, Never>?
+        var lastProgressDate = Date()
+        var lastDistance = 0.0
+        let destination: URL
+
+        init(background: Bool) {
+            self.background = background
+            report = Report(mode: background ? "background-ten-minutes" : "foreground")
+            destination = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("omega-device-acceptance.json")
+        }
+
+        func execute() async {
+            let previousSpeed = session.speedMetersPerSecond
+            let previousRoadMode = session.useRoadSpeeds
+            session.useRoadSpeeds = false
+            session.speedMetersPerSecond = 10
+            observer = session.$coordinate.dropFirst().sink { [weak self] coordinate in
+                guard coordinate != nil else { return }
+                self?.report.acceptedLocationUpdates += 1
+            }
+            movementObserver = session.$traveled.sink { [weak self] distance in
+                guard let self else { return }
+                if distance > lastDistance { report.acceptedMovementUpdates += 1 }
+                lastDistance = distance
+            }
+            writeReport()
+            progressTask = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                    guard let self else { return }
+                    let now = Date()
+                    report.maximumProgressGapSeconds = max(report.maximumProgressGapSeconds, now.timeIntervalSince(lastProgressDate))
+                    lastProgressDate = now
+                    writeReport()
+                }
+            }
+            do {
+                if background { try await backgroundChecks() }
+                else { try await foregroundChecks() }
+                report.status = "passed"
+            } catch {
+                report.status = "failed"
+            }
+            // A timeout only stops the check. Restoration remains serialized
+            // behind any actual FFI already in progress; never queue a retry.
+            report.checks.append(Check(name: "Restore Real Location", status: "running"))
+            writeReport()
+            let restoreStarted = Date()
+            await session.restoreRealLocation()
+            report.restored = !session.isActive && session.coordinate == nil && session.plannedRoute == nil
+            report.checks[report.checks.count - 1] = Check(name: "Restore Real Location", status: report.restored ? "passed" : "failed", seconds: Date().timeIntervalSince(restoreStarted))
+            if !report.restored { report.status = "failed" }
+            session.speedMetersPerSecond = previousSpeed
+            session.useRoadSpeeds = previousRoadMode
+            progressTask?.cancel()
+            observer?.cancel(); movementObserver?.cancel()
+            report.finishedAt = Date()
+            writeReport()
+        }
+
+        func check(_ name: String, _ operation: () async throws -> Void) async throws {
+            let index = report.checks.count
+            report.checks.append(Check(name: name, status: "running"))
+            writeReport()
+            let started = Date()
+            do {
+                try await operation()
+                report.checks[index] = Check(name: name, status: "passed", seconds: Date().timeIntervalSince(started))
+                writeReport()
+            } catch {
+                let detail: String
+                switch error {
+                case Failure.assertion(let message), Failure.timedOut(let message): detail = message
+                default: detail = "Check interrupted."
+                }
+                report.checks[index] = Check(name: name, status: "failed", seconds: Date().timeIntervalSince(started), detail: detail)
+                writeReport()
+                throw error
+            }
+        }
+
+        func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
+            guard condition() else { throw Failure.assertion(message) }
+        }
+
+        func wait(_ name: String, timeout: Double = 45, until predicate: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(timeout)
+            while !predicate(), Date() < deadline {
+                try Task.checkCancellation()
+                if session.playbackError != nil { throw Failure.assertion("Device transport reported an error.") }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            try require(predicate(), "Timed out: \(name).")
+        }
+
+        func apply(_ route: PlannedRoute) async throws {
+            let accepted = await session.play(route)
+            try require(accepted, "Device rejected the route starting point.")
+        }
+
+        func foregroundChecks() async throws {
+            try await check("Stationary position") {
+                let point = fixture().coordinates[0]
+                let accepted = await session.setStationary(point)
+                try require(accepted && session.isActive && session.coordinate != nil, "Device rejected stationary position.")
+            }
+            try await check("Leave later, Pause and Leave Now") {
+                var route = fixture()
+                route.departureDate = Date().addingTimeInterval(30)
+                try await apply(route)
+                try await wait("scheduled departure") { session.currentWait?.kind == .departure }
+                _ = await session.pauseAndWait()
+                let remaining = session.currentWait!.remainingSeconds
+                try await Task.sleep(for: .seconds(1))
+                try require(session.currentWait?.remainingSeconds == remaining && session.traveled == 0, "Paused schedule changed.")
+                session.resumePlayback()
+                try await wait("schedule resume") { session.playbackState == .playing }
+                session.skipCurrentWait()
+                try await wait("leave now arrival") { session.playbackState == .arrived }
+            }
+            try await check("Intermediate visit expires naturally") {
+                try await apply(fixture(dwell: 1))
+                try await wait("visit begins") { session.currentWait?.kind == .stop(title: "Public Test Stop") }
+                let start = Date()
+                try await wait("visit completes") { session.playbackState == .arrived }
+                try require(Date().timeIntervalSince(start) >= 0.9, "Visit completed before its configured delay.")
+            }
+            try await check("Skip intermediate visit") {
+                try await apply(fixture(dwell: 60))
+                try await wait("visit begins") { session.currentWait?.kind == .stop(title: "Public Test Stop") }
+                session.skipCurrentWait()
+                try await wait("skip visit arrival") { session.playbackState == .arrived }
+            }
+            try await check("Red light expires naturally") {
+                var route = fixture()
+                route.trafficLights = [.init(distance: route.stopDistances[0], delaySeconds: 5)]
+                try await apply(route)
+                try await wait("red light begins") { session.currentWait?.kind == .trafficLight }
+                let start = Date()
+                try await wait("red light completes") { session.playbackState == .arrived }
+                try require(Date().timeIntervalSince(start) >= 4.8, "Red light completed before five seconds.")
+            }
+            try await check("Skip red light") {
+                var route = fixture()
+                route.trafficLights = [.init(distance: route.stopDistances[0], delaySeconds: 90)]
+                try await apply(route)
+                try await wait("red light begins") { session.currentWait?.kind == .trafficLight }
+                session.skipCurrentWait()
+                try await wait("skip red arrival") { session.playbackState == .arrived }
+            }
+            try await check("Playback Pause, Resume and live road metadata") {
+                var route = fixture(lengthScale: 100)
+                try await apply(route)
+                try await wait("route progress") { session.traveled > 0 }
+                _ = await session.pauseAndWait()
+                let held = session.traveled
+                try await Task.sleep(for: .seconds(1))
+                try require(session.traveled == held, "Paused route advanced.")
+                route.speedSegments = [.init(startDistance: 0, endDistance: route.distance, metersPerSecond: 5)]
+                try require(session.applyRoadMetadata(route), "Current route metadata was rejected.")
+                session.useRoadSpeeds = true
+                try require(session.traveled == held && session.effectiveSpeedMetersPerSecond == 5, "Metadata reset progress or did not set road speed.")
+                session.resumePlayback()
+                try await wait("resume movement") { session.traveled > held }
+            }
+            try await check("End Route holds the last accepted position") {
+                await session.endPlayback()
+                let held = session.coordinate
+                try require(session.plannedRoute == nil && session.isActive && held != nil, "End did not leave a held position.")
+                let count = report.acceptedLocationUpdates
+                try await wait("holding refresh", timeout: 30) { report.acceptedLocationUpdates > count }
+                try require(session.coordinate?.latitude == held?.latitude && session.coordinate?.longitude == held?.longitude, "Held position changed.")
+            }
+        }
+
+        func backgroundChecks() async throws {
+            try await check("Ten-minute background route playback") {
+                session.speedMetersPerSecond = 1
+                try await apply(fixture(lengthScale: 2_000))
+                try await wait("initial background route progress") { session.traveled > 0 }
+                let start = Date()
+                let startDistance = session.traveled
+                let startUpdates = report.acceptedMovementUpdates
+                writeReport() // The operator can now send the app to the background.
+                while Date().timeIntervalSince(start) < 600 {
+                    try Task.checkCancellation()
+                    if session.playbackError != nil { throw Failure.assertion("Background device transport reported an error.") }
+                    try await Task.sleep(for: .seconds(5))
+                }
+                _ = await session.pauseAndWait()
+                report.backgroundDistanceMeters = session.traveled - startDistance
+                try require(session.traveled - startDistance >= 480, "Background distance was below 80 percent of the selected speed.")
+                try require(report.acceptedMovementUpdates - startUpdates >= 60, "Too few accepted background updates.")
+                try require(report.maximumProgressGapSeconds <= 20, "Background execution had a scheduling gap longer than twenty seconds.")
+            }
+        }
+
+        func fixture(dwell: Double = 0, lengthScale: Double = 1) -> PlannedRoute {
+            let stops = [
+                SimulationStop(title: "Public Test Start", coordinate: .init(latitude: 37.3317, longitude: -122.0301)),
+                SimulationStop(title: "Public Test Stop", coordinate: .init(latitude: 37.3317 + 0.00001 * lengthScale, longitude: -122.0301), dwellSeconds: dwell),
+                SimulationStop(title: "Public Test Finish", coordinate: .init(latitude: 37.3317 + 0.00005 * lengthScale, longitude: -122.0301))
+            ]
+            let geometry = RouteGeometry(stops.map(\.coordinate))
+            return PlannedRoute(coordinates: stops.map(\.coordinate), stopDistances: Array(geometry.distances.dropFirst()), stops: stops)
+        }
+
+        func writeReport() {
+            report.elapsedSeconds = Date().timeIntervalSince(report.startedAt)
+            report.traveledMeters = session.traveled
+            report.maximumTraveledMeters = max(report.maximumTraveledMeters, session.traveled)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let data = try? encoder.encode(report) { try? data.write(to: destination, options: .atomic) }
+        }
+    }
+}
+#endif

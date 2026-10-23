@@ -4,8 +4,9 @@ project_root="$(cd "$(dirname "$0")/.." && pwd)"
 engine_scratch="$(mktemp -d "${TMPDIR:-/tmp}/omega-locsim-engine.XXXXXX")"
 trap 'rm -rf "$engine_scratch"' EXIT
 mkdir -p "$engine_scratch/Sources/StikDebug" "$engine_scratch/Tests/StikDebugTests"
-cp "$project_root/StikDebug/Services/RoutePlanner.swift" "$project_root/StikDebug/Services/LocationSimulationSession.swift" "$project_root/scripts/engine-test-support/DeviceStubs.swift" "$engine_scratch/Sources/StikDebug/"
-cp "$project_root/StikDebugTests/RouteGeometryTests.swift" "$project_root/StikDebugTests/RoutePlaybackTests.swift" "$project_root/StikDebugTests/RoutePlannerTests.swift" "$engine_scratch/Tests/StikDebugTests/"
+cp "$project_root/StikDebug/Services/RoutePlanner.swift" "$project_root/StikDebug/Services/LocationSimulationSession.swift" "$project_root/StikDebug/Services/SimulationTiming.swift" "$project_root/StikDebug/Services/OmegaDeviceAcceptanceRunner.swift" "$project_root/StikDebug/Services/OmegaUnits.swift" "$project_root/StikDebug/Services/OmegaPlaceLibrary.swift" "$project_root/StikDebug/Services/LocationBookmark.swift" "$project_root/StikDebug/Services/TrafficLightPlanner.swift" "$project_root/scripts/engine-test-support/DeviceStubs.swift" "$engine_scratch/Sources/StikDebug/"
+cp "$project_root/StikDebug/Views/MapSelectionView.swift" "$engine_scratch/Sources/StikDebug/"
+cp "$project_root/StikDebugTests/RouteGeometryTests.swift" "$project_root/StikDebugTests/RoutePlaybackTests.swift" "$project_root/StikDebugTests/RoutePlannerTests.swift" "$project_root/StikDebugTests/SimulationTimingTests.swift" "$project_root/StikDebugTests/OmegaUnitsTests.swift" "$project_root/StikDebugTests/OmegaPlaceLibraryTests.swift" "$project_root/StikDebugTests/RoadMetadataTests.swift" "$project_root/StikDebugTests/CoordinateImportTests.swift" "$engine_scratch/Tests/StikDebugTests/"
 cat > "$engine_scratch/Package.swift" <<'PACKAGE'
 // swift-tools-version: 6.0
 import PackageDescription

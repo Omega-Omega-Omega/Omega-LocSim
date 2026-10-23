@@ -7,7 +7,8 @@ import SwiftUI
 import UIKit
 
 private enum SettingsLinks {
-    static let githubStars = URL(string: "https://github.com/StikDebug/StikDebug")!
+    static let githubStars = URL(string: "https://github.com/Omega-Omega-Omega/Omega-LocSim")!
+    static let upstream = URL(string: "https://github.com/StikDebug/StikDebug")!
     static let pairingFileGuide = URL(string: "https://github.com/StikDebug/StikDebug-Guide/blob/main/pairing_file.md")!
     static let localDevVPN = URL(string: "https://apps.apple.com/us/app/localdevvpn/id6755608044")!
     static let discord = URL(string: "https://discord.gg/qahjXNTDwS")!
@@ -19,6 +20,7 @@ struct SettingsView: View {
     init(onClose: (() -> Void)? = nil) { self.onClose = onClose }
     @AppStorage(UserDefaults.Keys.txmOverride) private var overrideTXMDetection = false
     @AppStorage(UserDefaults.Keys.confirmExternalJITRequests) private var confirmExternalJITRequests = true
+    @AppStorage("routeSpeedUsesMPH") private var usesMPH = true
     @AppStorage("keepAliveAudio") private var keepAliveAudio = true
     @AppStorage("keepAliveLocation") private var keepAliveLocation = true
     @AppStorage(UserDefaults.Keys.targetDeviceIP) private var targetDeviceIP = DeviceConnectionContext.defaultTargetIPAddress
@@ -63,6 +65,15 @@ struct SettingsView: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                         .listRowSeparator(.hidden)
+                }
+
+                Section {
+                    Picker("Measurement System", selection: $usesMPH) {
+                        Text("US Imperial").tag(true)
+                        Text("Metric").tag(false)
+                    }
+                } header: { Text("Units") } footer: {
+                    Text(usesMPH ? "Distances in miles and feet. Speeds in mph." : "Distances in kilometers and meters. Speeds in km/h.")
                 }
 
                 Section("Pairing File") {
@@ -155,6 +166,12 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Road Data") {
+                    Link("© OpenStreetMap contributors", destination: URL(string: "https://www.openstreetmap.org/copyright")!)
+                    Text("Mapped speed limits when available; estimates otherwise. Simulation only.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
                 Section("Help") {
                     Link(destination: SettingsLinks.pairingFileGuide) {
                         Label("Pairing File Guide", systemImage: "questionmark.circle")
@@ -174,7 +191,7 @@ struct SettingsView: View {
                         .listRowBackground(Color.clear)
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle("Omega Settings")
             .toolbar {
                 if let onClose {
                     ToolbarItem(placement: .confirmationAction) { Button("Done", action: onClose) }
@@ -254,7 +271,8 @@ struct SettingsView: View {
             Text("Omega LocSim")
                 .font(.title2.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
-            Text("Built on StikDebug").font(.caption).foregroundStyle(.secondary)
+            Link("Built on StikDebug", destination: SettingsLinks.upstream)
+                .font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
@@ -273,7 +291,7 @@ struct SettingsView: View {
 
     private var sourceLinkContent: some View {
         Link(destination: SettingsLinks.githubStars) {
-            Label("StikDebug Source", systemImage: "chevron.left.forwardslash.chevron.right")
+            Label("Omega Source", systemImage: "chevron.left.forwardslash.chevron.right")
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
         .controlSize(.large)

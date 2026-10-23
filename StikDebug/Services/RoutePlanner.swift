@@ -4,16 +4,33 @@ struct SimulationStop: Identifiable {
     let id: UUID
     var title: String
     var coordinate: CLLocationCoordinate2D
-    init(title: String, coordinate: CLLocationCoordinate2D) {
+    /// A visit at an intermediate stop. The final destination holds until End or Restore.
+    var dwellSeconds: TimeInterval
+    init(title: String, coordinate: CLLocationCoordinate2D, dwellSeconds: TimeInterval = 0) {
         id = UUID(); self.title = title; self.coordinate = coordinate
+        self.dwellSeconds = dwellSeconds
     }
 }
 
 struct PlannedRoute {
+    var id = UUID()
     var coordinates: [CLLocationCoordinate2D]
     var stopDistances: [Double]
     var stops: [SimulationStop]
+    var departureDate: Date? = nil
+    /// Sampled once during route planning. Zero-delay entries represent green lights.
+    var trafficLights: [TrafficLightDecision] = []
+    var speedSegments: [RouteSpeedSegment] = []
     var distance: Double { stopDistances.last ?? 0 }
+
+    var plannedDelaySeconds: TimeInterval { timingEvents.reduce(0) { $0 + $1.seconds } }
+    func duration(atSpeed speed: Double, useRoadSpeeds: Bool = true) -> TimeInterval {
+        let profile = RouteSpeedProfile(segments: useRoadSpeeds ? speedSegments : [], length: distance)
+        return profile.duration(from: 0, to: distance, fallbackSpeed: speed) + plannedDelaySeconds
+    }
+    func waitingUntilDeparture(at date: Date = Date()) -> TimeInterval {
+        max(0, departureDate?.timeIntervalSince(date) ?? 0)
+    }
 }
 
 @MainActor

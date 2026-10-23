@@ -13,6 +13,20 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
     private var isRunning = false
     private var activityCount = 0
     private var isRequestingAuthorization = false
+    private var didRequestAlwaysUpgrade = false
+    private var didShowAuthorizationAlert = false
+
+    var isKeepingAlive: Bool { isRunning }
+    var authorizationDescription: String {
+        switch locationManager.authorizationStatus {
+        case .authorizedAlways: return "Always"
+        case .authorizedWhenInUse: return "While Using"
+        case .notDetermined: return "Not Requested"
+        case .denied: return "Denied"
+        case .restricted: return "Restricted"
+        @unknown default: return "Unknown"
+        }
+    }
 
     private override init() {
         super.init()
@@ -39,9 +53,12 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
 
     func requestAuthorizationIfNeeded() {
         switch locationManager.authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
+        case .authorizedAlways:
             return
+        case .authorizedWhenInUse:
+            requestAlwaysUpgradeIfNeeded()
         case .notDetermined:
+            guard !isRequestingAuthorization else { return }
             isRequestingAuthorization = true
             locationManager.requestAlwaysAuthorization()
         case .denied, .restricted:
@@ -51,23 +68,34 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    private func requestAlwaysUpgradeIfNeeded() {
+        guard !didRequestAlwaysUpgrade else { return }
+        didRequestAlwaysUpgrade = true
+        locationManager.requestAlwaysAuthorization()
+    }
+
     private func refreshRunningState() {
         let shouldRun = activityCount > 0 && UserDefaults.standard.bool(forKey: "keepAliveLocation")
-        guard shouldRun != isRunning else { return }
-
-        isRunning = shouldRun
         guard shouldRun else {
-            locationManager.stopUpdatingLocation()
+            if isRunning { locationManager.stopUpdatingLocation() }
+            isRunning = false
             return
         }
 
         switch locationManager.authorizationStatus {
-        case .authorizedAlways:
-            locationManager.startUpdatingLocation()
-        case .authorizedWhenInUse:
-            locationManager.requestAlwaysAuthorization()
+        case .authorizedAlways, .authorizedWhenInUse:
+            // When-In-Use permission can continue a foreground-started location
+            // session in the background. Never wait for an Always callback that
+            // iOS may legitimately omit when an upgrade prompt is deferred.
+            if !isRunning {
+                locationManager.startUpdatingLocation()
+                isRunning = true
+            }
+            if locationManager.authorizationStatus == .authorizedWhenInUse {
+                requestAlwaysUpgradeIfNeeded()
+            }
         case .notDetermined:
-            locationManager.requestAlwaysAuthorization()
+            requestAuthorizationIfNeeded()
         case .denied, .restricted:
             restoreAudioFallback()
         @unknown default:
@@ -79,21 +107,17 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
             isRequestingAuthorization = false
-            if isRunning {
-                manager.startUpdatingLocation()
-            }
+            didShowAuthorizationAlert = false
+            refreshRunningState()
         case .denied, .restricted:
-            if isRunning || isRequestingAuthorization {
-                isRequestingAuthorization = false
-                restoreAudioFallback()
-            }
+            let hadRequest = isRequestingAuthorization || activityCount > 0
+            isRequestingAuthorization = false
+            if hadRequest { restoreAudioFallback() }
         case .notDetermined:
             return
         @unknown default:
-            if isRunning || isRequestingAuthorization {
-                isRequestingAuthorization = false
-                restoreAudioFallback()
-            }
+            isRequestingAuthorization = false
+            if activityCount > 0 { restoreAudioFallback() }
         }
     }
 
@@ -104,6 +128,8 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
         refreshRunningState()
         BackgroundAudioManager.shared.configurationDidChange()
 
+        guard !didShowAuthorizationAlert else { return }
+        didShowAuthorizationAlert = true
         showAlert(
             title: "Location Access Refused",
             message: "Location access was refused. Open Settings to enable it.",

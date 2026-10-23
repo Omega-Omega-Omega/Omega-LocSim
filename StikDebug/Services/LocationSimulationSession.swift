@@ -14,8 +14,21 @@ final class LocationSimulationSession: ObservableObject {
     @Published private(set) var playbackError: String?
     @Published private(set) var traveled = 0.0
     @Published var speedMetersPerSecond = 13.4112
+    @Published var useRoadSpeeds = true {
+        didSet { if managesBackground { UserDefaults.standard.set(useRoadSpeeds, forKey: "omegaUseRoadSpeeds") } }
+    }
     @Published private(set) var plannedRoute: PlannedRoute?
     @Published private(set) var isSendingLocation = false
+    @Published private(set) var currentWait: SimulationWait?
+
+    private var timingEvents: [RouteTimingEvent] = []
+    private var nextTimingEvent = 0
+    private var pendingMovementDistance: Double?
+    private var pendingRoadMetadata: PlannedRoute?
+    private var roadSpeedProfile = RouteSpeedProfile(segments: [], length: 0)
+    private var waitClock: TimeInterval?
+    private let monotonicNow: @MainActor () -> TimeInterval
+    private let wallNow: @MainActor () -> Date
 
     private var playbackTask: Task<Void, Never>?
     private var resumeTask: Task<Void, Never>?
@@ -35,13 +48,19 @@ final class LocationSimulationSession: ObservableObject {
     private init() {
         sender = nil; managesBackground = true
         tickInterval = 0.5; holdInterval = 4
+        monotonicNow = { ProcessInfo.processInfo.systemUptime }
+        wallNow = { Date() }
+        useRoadSpeeds = UserDefaults.standard.object(forKey: "omegaUseRoadSpeeds") as? Bool ?? true
     }
 
     // The same holding and playback paths run with an injected test transport.
     init(tickInterval: Double = 0.5, holdInterval: Double = 4,
+         monotonicNow: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         wallNow: @escaping @MainActor () -> Date = { Date() },
          sender: @escaping @MainActor (CLLocationCoordinate2D?) async -> Int32) {
         self.sender = sender; managesBackground = false
         self.tickInterval = tickInterval; self.holdInterval = holdInterval
+        self.monotonicNow = monotonicNow; self.wallNow = wallNow
     }
 
     private struct Transmission {
@@ -73,9 +92,9 @@ final class LocationSimulationSession: ObservableObject {
         guard !Task.isCancelled, valid() else { return nil }
         let result: Transmission
         if let sender {
-            let started = ProcessInfo.processInfo.systemUptime
+            let started = monotonicNow()
             let code = await sender(point)
-            result = Transmission(code: code, seconds: ProcessInfo.processInfo.systemUptime - started)
+            result = Transmission(code: code, seconds: max(0, monotonicNow() - started))
         } else {
             let ip = DeviceConnectionContext.targetIPAddress
             let path = PairingFileStore.prepareURL().path
@@ -122,7 +141,7 @@ final class LocationSimulationSession: ObservableObject {
     /// Returns true only when this route was accepted. A failed replacement
     /// leaves the original route/progress paused and lets the UI retain its draft.
     @discardableResult
-    func play(_ route: PlannedRoute) async -> Bool {
+    func play(_ route: PlannedRoute, preservingCurrentWait: Bool = false) async -> Bool {
         guard route.coordinates.count > 1, let first = route.coordinates.first else {
             playbackError = "Choose a route with a starting location and a destination."
             return false
@@ -134,17 +153,27 @@ final class LocationSimulationSession: ObservableObject {
             playbackError = "Could not apply route (error \(result.code)). Check the connection and try again." + (plannedRoute == nil ? "" : " Your previous route is paused.")
             holdPosition(); return false
         }
+        let retainedWait = preservingCurrentWait ? currentWait : nil
         plannedRoute = route
         geometry = RouteGeometry(route.coordinates)
+        roadSpeedProfile = RouteSpeedProfile(segments: route.speedSegments, length: geometry.length)
         traveled = 0
+        timingEvents = route.timingEvents
+        nextTimingEvent = 0
+        currentWait = nil; waitClock = nil
         _ = startRoute(at: first, coordinates: route.coordinates)
         playbackState = .paused
+        let departureDelay = route.waitingUntilDeparture(at: wallNow())
+        if let retainedWait { beginWait(retainedWait.kind, seconds: retainedWait.remainingSeconds) }
+        else if departureDelay > 0 { beginWait(.departure, seconds: departureDelay) }
         if pauseRevision == requestedPauseRevision { resumePlayback() }
         else { holdPosition() }
         return true
     }
 
     func pausePlayback() {
+        settleWait()
+        waitClock = nil
         pauseRevision += 1
         resumeTask?.cancel(); resumeTask = nil
         playbackTask?.cancel(); playbackTask = nil
@@ -171,6 +200,7 @@ final class LocationSimulationSession: ObservableObject {
             guard !Task.isCancelled, actionID == id, plannedRoute != nil else { return }
             playbackError = nil
             playbackState = .playing
+            if currentWait != nil { waitClock = monotonicNow(); holdPosition() }
             startPlaybackLoop()
         }
     }
@@ -180,30 +210,144 @@ final class LocationSimulationSession: ObservableObject {
         playbackTask = Task { @MainActor in
             var transportSeconds = 0.0
             while !Task.isCancelled, playbackState == .playing {
-                let sleepStarted = ProcessInfo.processInfo.systemUptime
+                let sleepStarted = monotonicNow()
                 do { try await Task.sleep(for: .seconds(tickInterval)) } catch { return }
-                guard !Task.isCancelled else { return }
-                let scheduledSeconds = ProcessInfo.processInfo.systemUptime - sleepStarted
+                guard !Task.isCancelled, routeID == activeRouteID else { return }
+                if currentWait != nil {
+                    settleWait()
+                    // Waiting time never becomes movement, even after an interrupted
+                    // timer or a slow hold transmission. Pause freezes this countdown.
+                    transportSeconds = 0
+                    continue
+                }
+                if beginReachedWait() {
+                    transportSeconds = 0
+                    continue
+                }
+                if traveled >= geometry.length {
+                    playbackState = .arrived; holdPosition(); return
+                }
+                let scheduledSeconds = max(0, monotonicNow() - sleepStarted)
                 // Only unexpected scheduling gaps are capped. A slow, active device
                 // transmission contributes its full measured duration to the next step.
                 let elapsed = transportSeconds + min(scheduledSeconds, tickInterval * 2)
-                let next = min(geometry.length, traveled + max(0, speedMetersPerSecond) * elapsed)
-                guard let point = geometry.coordinate(at: next),
-                      let result = await transmit(point) else { return }
-                if result.code == 0, routeID == activeRouteID { traveled = next }
-                // Pause cannot cancel the synchronous bridge; report its result first.
+                let speed = speedMetersPerSecond.isFinite ? max(0, speedMetersPerSecond) : 0
+                let barrier = nextTimingEvent < timingEvents.count ? timingEvents[nextTimingEvent].distance : geometry.length
+                let limit = min(geometry.length, barrier)
+                let next = useRoadSpeeds
+                    ? roadSpeedProfile.advance(from: traveled, seconds: elapsed, upTo: limit, fallbackSpeed: speed)
+                    : min(limit, traveled + speed * elapsed)
+                guard let point = geometry.coordinate(at: next) else { return }
+                pendingMovementDistance = next
+                let transmission = await transmit(point)
+                pendingMovementDistance = nil
+                guard let result = transmission else {
+                    if let metadata = pendingRoadMetadata {
+                        pendingRoadMetadata = nil
+                        _ = applyRoadMetadata(metadata)
+                    }
+                    return
+                }
+                if result.code == 0, routeID == activeRouteID {
+                    traveled = next
+                    // Record a wait even if Pause happened during the uninterruptible
+                    // transport: the accepted stop must not be silently skipped.
+                    _ = beginReachedWait()
+                }
+                if let metadata = pendingRoadMetadata {
+                    pendingRoadMetadata = nil
+                    _ = applyRoadMetadata(metadata)
+                }
                 if result.code != 0, routeID == activeRouteID {
                     playbackState = .paused
                     playbackError = "Location update failed (error \(result.code)). Check the connection, then Resume."
                     holdPosition(); return
                 }
                 guard !Task.isCancelled, routeID == activeRouteID else { return }
-                transportSeconds = result.seconds
-                if next >= geometry.length {
+                transportSeconds = currentWait == nil ? result.seconds : 0
+                if next >= geometry.length, currentWait == nil {
                     playbackState = .arrived; holdPosition(); return
                 }
             }
         }
+    }
+
+    private func beginWait(_ kind: SimulationWait.Kind, seconds: TimeInterval) {
+        currentWait = SimulationWait(kind: kind, remainingSeconds: seconds)
+        waitClock = playbackState == .playing ? monotonicNow() : nil
+        holdPosition()
+    }
+
+    @discardableResult
+    private func beginReachedWait() -> Bool {
+        guard currentWait == nil, nextTimingEvent < timingEvents.count else { return false }
+        let event = timingEvents[nextTimingEvent]
+        guard event.distance <= traveled + 0.000_001 else { return false }
+        nextTimingEvent += 1
+        beginWait(event.kind, seconds: event.seconds)
+        return true
+    }
+
+    private func settleWait() {
+        guard var wait = currentWait, let last = waitClock else { return }
+        let now = monotonicNow()
+        wait.remainingSeconds = max(0, wait.remainingSeconds - max(0, now - last))
+        waitClock = now
+        if wait.remainingSeconds <= 0 {
+            currentWait = nil; waitClock = nil
+            if playbackState == .playing { stopHolding() }
+        } else { currentWait = wait }
+    }
+
+    var canSkipWait: Bool { currentWait != nil }
+
+    /// Skip only the current wait. A paused route stays paused until Resume.
+    func skipCurrentWait() {
+        guard currentWait != nil else { return }
+        currentWait = nil; waitClock = nil
+        if playbackState == .playing { stopHolding() }
+    }
+
+    var remainingDuration: TimeInterval {
+        let speed = speedMetersPerSecond.isFinite ? max(0.1, speedMetersPerSecond) : 0.1
+        let travel = useRoadSpeeds ? roadSpeedProfile.duration(from: traveled, to: geometry.length, fallbackSpeed: speed) : remainingDistance / speed
+        return travel + (currentWait?.remainingSeconds ?? 0)
+            + timingEvents.dropFirst(nextTimingEvent).reduce(0) { $0 + $1.seconds }
+    }
+
+    var effectiveSpeedMetersPerSecond: Double {
+        useRoadSpeeds ? roadSpeedProfile.speed(at: traveled, fallbackSpeed: speedMetersPerSecond) : speedMetersPerSecond
+    }
+
+    /// Metadata is optional and may arrive after Go. Identity prevents an old
+    /// network response from modifying an edited/replaced route. Accepted
+    /// progress, the active wait and pending visits remain untouched.
+    @discardableResult
+    func applyRoadMetadata(_ metadataRoute: PlannedRoute) -> Bool {
+        guard var route = plannedRoute, route.id == metadataRoute.id else { return false }
+        route.speedSegments = metadataRoute.speedSegments
+        route.trafficLights = metadataRoute.trafficLights
+        plannedRoute = route
+        roadSpeedProfile = RouteSpeedProfile(segments: route.speedSegments, length: geometry.length)
+        if pendingMovementDistance != nil {
+            // Only the result decides whether newly discovered lights were
+            // crossed. Keep them pending rather than discarding a light behind
+            // an in-flight target which the device might reject.
+            pendingRoadMetadata = metadataRoute
+            return true
+        }
+        let pendingVisits = timingEvents.dropFirst(nextTimingEvent).filter {
+            if case .stop = $0.kind { return true }
+            return false
+        }
+        let futureLights = route.timingEvents.filter { event in
+            event.kind == .trafficLight && event.distance > traveled + 0.000_001
+        }
+        timingEvents = (futureLights + pendingVisits).enumerated().sorted {
+            $0.element.distance == $1.element.distance ? $0.offset < $1.offset : $0.element.distance < $1.element.distance
+        }.map(\.element)
+        nextTimingEvent = 0
+        return true
     }
 
     func endPlayback() async {
@@ -237,6 +381,11 @@ final class LocationSimulationSession: ObservableObject {
                 guard let result = await transmit(point) else { return }
                 guard !Task.isCancelled else { return }
                 if result.code != 0 {
+                    if playbackState == .playing, currentWait != nil {
+                        settleWait(); waitClock = nil
+                        playbackTask?.cancel(); playbackTask = nil
+                        playbackState = .paused
+                    }
                     playbackError = "Could not hold location (error \(result.code)). Check the device connection."
                     return
                 }
@@ -247,6 +396,9 @@ final class LocationSimulationSession: ObservableObject {
     private func clearPlaybackRoute() {
         plannedRoute = nil; clearRoute(); geometry = RouteGeometry([])
         traveled = 0; playbackState = .idle
+        timingEvents = []; nextTimingEvent = 0; currentWait = nil; waitClock = nil
+        pendingRoadMetadata = nil
+        roadSpeedProfile = RouteSpeedProfile(segments: [], length: 0)
     }
 
     private func finishRestoration() {

@@ -20,7 +20,19 @@ struct StikDebugApp: App {
         WindowGroup {
             LocationSimulationView()
                 .task {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--omega-approved-setup") {
+                        for key in ["omegaRoadMetadataAllowed", "omegaMappedTrafficLights", "routeSpeedUsesMPH", "omegaUseRoadSpeeds", "keepAliveAudio", "keepAliveLocation"] {
+                            UserDefaults.standard.set(true, forKey: key)
+                        }
+                        BackgroundLocationManager.shared.requestAuthorizationIfNeeded()
+                    }
+                    OmegaDiagnostics.shared.start()
+                    #endif
                     await downloadMissingDeveloperDiskImageFiles()
+                    #if DEBUG
+                    await OmegaDeviceAcceptanceRunner.runIfRequested()
+                    #endif
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     handleScenePhaseChange(newPhase)
@@ -29,6 +41,9 @@ struct StikDebugApp: App {
     }
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        #if DEBUG
+        OmegaDiagnostics.shared.sceneChanged(String(describing: newPhase))
+        #endif
         switch newPhase {
         case .background:
             shouldAttemptTunnelReconnect = true

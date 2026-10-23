@@ -1,6 +1,7 @@
 // Coordinate imports and bookmarks preserved from upstream StikDebug.
 // Original MapSelectionView.swift by Stephen, 11/3/25. AGPL-3.0.
 import Foundation
+import CoreFoundation
 import CoreLocation
 import UniformTypeIdentifiers
 
@@ -17,7 +18,6 @@ private struct CoordinateSnapshot: Equatable {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 }
-
 private enum CoordinateImportError: LocalizedError {
     case emptyFile
     case noCoordinates
@@ -60,38 +60,24 @@ enum CoordinateImportParser {
         guard !data.isEmpty else { throw CoordinateImportError.emptyFile }
 
         let fileExtension = url.pathExtension.lowercased()
-        if fileExtension == "json" || fileExtension == "geojson" {
-            if let coordinates = try? parseJSONCoordinates(from: data),
-               !coordinates.isEmpty {
-                return coordinates
-            }
+        let text = decodedText(from: data)
+        let firstCharacter = text?.trimmingCharacters(in: .whitespacesAndNewlines).first
+        let coordinates: [CLLocationCoordinate2D]
+        // A structured file must not fall through to a number extractor when
+        // malformed: XML versions, timestamps or altitude are not positions.
+        if ["json", "geojson"].contains(fileExtension) {
+            coordinates = (try? parseJSONCoordinates(from: data)) ?? []
+        } else if ["gpx", "kml", "xml"].contains(fileExtension) {
+            coordinates = parseXMLCoordinates(from: data)
+        } else if firstCharacter == "{" || firstCharacter == "[" {
+            coordinates = (try? parseJSONCoordinates(from: data)) ?? []
+        } else if firstCharacter == "<" {
+            coordinates = parseXMLCoordinates(from: data)
+        } else {
+            coordinates = text.map(parseInline) ?? []
         }
-
-        if fileExtension == "gpx" || fileExtension == "kml" || fileExtension == "xml" {
-            let coordinates = parseXMLCoordinates(from: data)
-            if !coordinates.isEmpty {
-                return coordinates
-            }
-        }
-
-        if let text = decodedText(from: data) {
-            let coordinates = parseInline(text)
-            if !coordinates.isEmpty {
-                return coordinates
-            }
-        }
-
-        if let coordinates = try? parseJSONCoordinates(from: data),
-           !coordinates.isEmpty {
-            return coordinates
-        }
-
-        let coordinates = parseXMLCoordinates(from: data)
-        if !coordinates.isEmpty {
-            return coordinates
-        }
-
-        throw CoordinateImportError.noCoordinates
+        guard !coordinates.isEmpty else { throw CoordinateImportError.noCoordinates }
+        return coordinates
     }
 
     static func parseInline(_ text: String) -> [CLLocationCoordinate2D] {
@@ -118,7 +104,8 @@ enum CoordinateImportParser {
     private static func coordinate(
         first: Double,
         second: Double,
-        order: CoordinateOrder
+        order: CoordinateOrder,
+        allowUnlabelledSwap: Bool = false
     ) -> CLLocationCoordinate2D? {
         let preferred: CLLocationCoordinate2D
         let fallback: CLLocationCoordinate2D
@@ -135,7 +122,7 @@ enum CoordinateImportParser {
         if CLLocationCoordinate2DIsValid(preferred) {
             return preferred
         }
-        if CLLocationCoordinate2DIsValid(fallback) {
+        if allowUnlabelledSwap, CLLocationCoordinate2DIsValid(fallback) {
             return fallback
         }
         return nil
@@ -151,9 +138,13 @@ enum CoordinateImportParser {
         order: CoordinateOrder
     ) -> [CLLocationCoordinate2D] {
         if let dictionary = object as? [String: Any] {
-            if let latitude = numberValue(forAnyKey: ["latitude", "lat"], in: dictionary),
-               let longitude = numberValue(forAnyKey: ["longitude", "lon", "lng"], in: dictionary),
-               let coordinate = coordinate(first: latitude, second: longitude, order: .latitudeLongitude) {
+            let hasNamedCoordinates = dictionary.keys.contains {
+                ["latitude", "lat", "longitude", "lon", "lng"].contains($0.lowercased())
+            }
+            if hasNamedCoordinates {
+                guard let latitude = numberValue(forAnyKey: ["latitude", "lat"], in: dictionary),
+                      let longitude = numberValue(forAnyKey: ["longitude", "lon", "lng"], in: dictionary),
+                      let coordinate = coordinate(first: latitude, second: longitude, order: .latitudeLongitude) else { return [] }
                 return [coordinate]
             }
 
@@ -176,14 +167,15 @@ enum CoordinateImportParser {
                 }
             }
 
-            return dictionary.values.flatMap { coordinates(fromJSONObject: $0, order: order) }
+            return dictionary.keys.sorted().flatMap { coordinates(fromJSONObject: dictionary[$0]!, order: order) }
         }
 
         if let array = object as? [Any] {
             if array.count >= 2,
                let first = numericValue(array[0]),
                let second = numericValue(array[1]),
-               let coordinate = coordinate(first: first, second: second, order: order) {
+               let coordinate = coordinate(first: first, second: second, order: order,
+                                           allowUnlabelledSwap: order == .latitudeLongitude) {
                 return [coordinate]
             }
 
@@ -195,6 +187,7 @@ enum CoordinateImportParser {
 
     private static func numericValue(_ value: Any) -> Double? {
         if let number = value as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
             return number.doubleValue
         }
         if let string = value as? String {
@@ -204,9 +197,11 @@ enum CoordinateImportParser {
     }
 
     private static func numberValue(forAnyKey keys: [String], in dictionary: [String: Any]) -> Double? {
-        let keyedValues = Dictionary(uniqueKeysWithValues: dictionary.map { ($0.key.lowercased(), $0.value) })
         for key in keys {
-            if let value = keyedValues[key],
+            // Prefer the canonical spelling and handle case variants without
+            // constructing a dictionary with duplicate lowercased keys.
+            let actualKey = dictionary[key] != nil ? key : dictionary.keys.sorted().first { $0.lowercased() == key }
+            if let actualKey, let value = dictionary[actualKey],
                let number = numericValue(value) {
                 return number
             }
@@ -217,6 +212,8 @@ enum CoordinateImportParser {
     private static func parseXMLCoordinates(from data: Data) -> [CLLocationCoordinate2D] {
         let collector = XMLCoordinateCollector()
         let parser = XMLParser(data: data)
+        parser.shouldProcessNamespaces = true
+        parser.shouldResolveExternalEntities = false
         parser.delegate = collector
         guard parser.parse() else { return [] }
         return sanitized(collector.coordinates)
@@ -273,11 +270,11 @@ enum CoordinateImportParser {
         text
             .split(whereSeparator: { $0.isWhitespace })
             .compactMap { token -> CLLocationCoordinate2D? in
-                let values = token
-                    .split(separator: ",")
-                    .compactMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-                guard values.count >= 2 else { return nil }
-                return coordinate(first: values[0], second: values[1], order: .longitudeLatitude)
+                let values = token.split(separator: ",", omittingEmptySubsequences: false)
+                guard values.count >= 2,
+                      let longitude = Double(values[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+                      let latitude = Double(values[1].trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+                return coordinate(first: longitude, second: latitude, order: .longitudeLatitude)
             }
     }
 
@@ -296,19 +293,21 @@ enum CoordinateImportParser {
                 continue
             }
 
-            if let headerIndices,
-               fields.indices.contains(headerIndices.latitude),
-               fields.indices.contains(headerIndices.longitude),
-               let latitude = numbers(in: fields[headerIndices.latitude]).first,
-               let longitude = numbers(in: fields[headerIndices.longitude]).first,
-               let coordinate = coordinate(first: latitude, second: longitude, order: .latitudeLongitude) {
-                coordinates.append(coordinate)
+            if let headerIndices {
+                if fields.indices.contains(headerIndices.latitude),
+                   fields.indices.contains(headerIndices.longitude),
+                   let latitude = Double(fields[headerIndices.latitude]),
+                   let longitude = Double(fields[headerIndices.longitude]),
+                   let coordinate = coordinate(first: latitude, second: longitude, order: .latitudeLongitude) {
+                    coordinates.append(coordinate)
+                }
                 continue
             }
 
             let values = numbers(in: trimmed)
             if values.count >= 2,
-               let coordinate = coordinate(first: values[0], second: values[1], order: .latitudeLongitude) {
+               let coordinate = coordinate(first: values[0], second: values[1], order: .latitudeLongitude,
+                                           allowUnlabelledSwap: true) {
                 coordinates.append(coordinate)
             }
         }
@@ -317,13 +316,22 @@ enum CoordinateImportParser {
     }
 
     private static func splitFields(_ line: String) -> [String] {
-        line
-            .split { character in
-                character == "," ||
-                character == ";" ||
-                character == "\t"
+        var fields: [String] = []
+        var field = ""
+        var quoted = false
+        var characters = line.makeIterator()
+        while let character = characters.next() {
+            if character == "\"" {
+                quoted.toggle()
+            } else if !quoted && [",", ";", "\t"].contains(character) {
+                fields.append(field.trimmingCharacters(in: .whitespacesAndNewlines))
+                field = ""
+            } else {
+                field.append(character)
             }
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+        fields.append(field.trimmingCharacters(in: .whitespacesAndNewlines))
+        return fields
     }
 
     private static func detectHeader(in fields: [String]) -> (latitude: Int, longitude: Int)? {
@@ -336,25 +344,12 @@ enum CoordinateImportParser {
     }
 
     private static func numbers(in text: String) -> [Double] {
-        let pattern = #"[-+]?(?:\d+(?:\.\d*)?|\.\d+)"#
+        let pattern = #"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return regex.matches(in: text, range: range).compactMap { match in
             guard let matchRange = Range(match.range, in: text) else { return nil }
             return Double(text[matchRange])
         }
-    }
-}
-
-// MARK: - Bookmark Model
-
-struct LocationBookmark: Identifiable, Codable {
-    var id: UUID = UUID()
-    var name: String
-    var latitude: Double
-    var longitude: Double
-
-    var coordinate: CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 }
