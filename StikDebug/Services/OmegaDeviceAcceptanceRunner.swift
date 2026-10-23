@@ -12,9 +12,10 @@ enum OmegaDeviceAcceptanceRunner {
     static func runIfRequested() async {
         let arguments = ProcessInfo.processInfo.arguments
         let background = arguments.contains("--omega-background-acceptance")
-        guard !didRun, background || arguments.contains("--omega-device-acceptance") else { return }
+        let roadOnly = arguments.contains("--omega-road-acceptance")
+        guard !didRun, background || roadOnly || arguments.contains("--omega-device-acceptance") else { return }
         didRun = true
-        await Run(background: background).execute()
+        await Run(background: background, roadOnly: roadOnly).execute()
     }
 
     @MainActor
@@ -45,6 +46,7 @@ enum OmegaDeviceAcceptanceRunner {
         enum Failure: Error { case assertion(String), timedOut(String) }
 
         let background: Bool
+        let roadOnly: Bool
         let session = LocationSimulationSession.shared
         var report: Report
         var observer: AnyCancellable?
@@ -54,9 +56,10 @@ enum OmegaDeviceAcceptanceRunner {
         var lastDistance = 0.0
         let destination: URL
 
-        init(background: Bool) {
+        init(background: Bool, roadOnly: Bool = false) {
             self.background = background
-            report = Report(mode: background ? "background-ten-minutes" : "foreground")
+            self.roadOnly = roadOnly
+            report = Report(mode: roadOnly ? "late-road-metadata" : background ? "background-ten-minutes" : "foreground")
             destination = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("omega-device-acceptance.json")
         }
@@ -87,7 +90,8 @@ enum OmegaDeviceAcceptanceRunner {
                 }
             }
             do {
-                if background { try await backgroundChecks() }
+                if roadOnly { try await roadMetadataChecks() }
+                else if background { try await backgroundChecks() }
                 else { try await foregroundChecks() }
                 report.status = "passed"
             } catch {
@@ -271,6 +275,49 @@ enum OmegaDeviceAcceptanceRunner {
                 let count = report.acceptedLocationUpdates
                 try await wait("holding refresh", timeout: 30) { report.acceptedLocationUpdates > count }
                 try require(session.coordinate?.latitude == held?.latitude && session.coordinate?.longitude == held?.longitude, "Held position changed.")
+            }
+        }
+
+        /// Controlled late responses exercise the real device bridge. Provider
+        /// availability is tested separately, so a fixture cannot pass as live OSM.
+        func roadMetadataChecks() async throws {
+            session.useRoadSpeeds = true
+            session.speedMetersPerSecond = 10
+            try await check("Late mapped speed and light after fallback start") {
+                var route = fixture(lengthScale: 100)
+                try await apply(route)
+                try await wait("fallback movement") { session.traveled > 5 }
+                let held = session.traveled
+                route.speedSegments = [.init(startDistance: 0, endDistance: route.distance, metersPerSecond: 35 * 0.44704)]
+                route.trafficLights = [.init(distance: 100, delaySeconds: 5)]
+                try require(session.applyRoadMetadata(route), "Late mapped road details were rejected.")
+                try await wait("late speed commits") { abs(session.effectiveSpeedMetersPerSecond - 35 * 0.44704) < 0.01 }
+                try require(session.playbackState == .playing && session.traveled >= held,
+                            "Late metadata paused or restarted playback.")
+                try await wait("late red light begins", timeout: 15) { session.currentWait?.kind == .trafficLight }
+                let redStarted = Date()
+                try await wait("late red light completes", timeout: 10) { session.currentWait == nil && session.traveled > 100 }
+                try require(Date().timeIntervalSince(redStarted) >= 4.5, "Late light did not retain its five-second wait.")
+                await session.endPlayback()
+            }
+            try await check("Late slower limits preserve the latest Arrive By") {
+                var route = fixture(lengthScale: 50)
+                route.arrivalDate = Date().addingTimeInterval(30)
+                try await apply(route)
+                try await wait("deadline fallback movement") { session.traveled > 5 }
+                let deadline = Date().addingTimeInterval(12)
+                session.updateArrivalDate(deadline)
+                route.speedSegments = [.init(startDistance: 0, endDistance: route.distance, metersPerSecond: 5)]
+                route.trafficLights = [.init(distance: route.distance * 0.6, delaySeconds: 90),
+                                       .init(distance: route.distance * 0.8, delaySeconds: 90)]
+                try require(session.applyRoadMetadata(route), "Deadline route rejected late road details.")
+                try await wait("deadline late metadata commits") { session.plannedRoute?.trafficLights.count == 2 }
+                try require(session.plannedRoute?.arrivalDate == deadline && session.playbackState == .playing,
+                            "Late metadata replaced the latest deadline or paused playback.")
+                try require(session.arrivalAdjustment?.skippedTrafficLightCount == 2 && session.effectiveSpeedMetersPerSecond > 5,
+                            "Arrive By did not turn the necessary lights green and adjust pace.")
+                try await wait("deadline arrival", timeout: 18) { session.playbackState == .arrived }
+                try require(Date().timeIntervalSince(deadline) <= 2, "Late limits missed the deadline transport tolerance.")
             }
         }
 

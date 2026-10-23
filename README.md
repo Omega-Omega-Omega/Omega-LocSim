@@ -2,7 +2,13 @@
 
 Omega LocSim is an iPhone location simulator built from [StikDebug](https://github.com/StikDebug/StikDebug), with a native MapKit interface and Liquid Glass controls.
 
-## Version 3.3.0
+## Version 3.3.1
+
+Version 3.3.1 (build 10) repairs progressive road-data loading. Smaller chunks publish limits and lights sooner; Go keeps loading after a fallback start, imported paths load details, and editing no longer cancels the active route's request. Partial progress is visible. Busy servers produce a retry countdown, with continued backoff while a route is active. Late updates keep accepted progress and the latest Arrive By target, adjusting lights and pace together.
+
+**Current limitation:** both approved public road-data APIs were unavailable in the October 23 probes. The primary reported a full worker queue; both tiny GET/POST queries timed out. These fixes improve loading and recovery but cannot supply mapped data while the servers are down. The 3.3.1 isolated suite passes **120 checks** (115 XCTest and 5 Swift Testing), two delayed-data/failure simulator integration checks pass, and the signed Release build succeeds; physical acceptance is not claimed. The final Release is locally built; its physical installation and acceptance checks are pending.
+
+### Interface introduced in 3.3.0
 
 Version 3.3.0 (build 9) reorganizes the map around a larger Places shelf, Recents, and Saved Routes, with deeper blue accents and a blue location dot with a heading fan. **Build Route** opens an editable stop list with direct removal, Undo, and accessible reordering. Opening Edit Route keeps playback running; a manually paused route stays paused when changes are applied.
 
@@ -18,7 +24,7 @@ Swipe up below a route preview or active trip to find **Route Options**: departu
 
 See [FEATURES.md](FEATURES.md) for the full control inventory and [IMPLEMENTATION.md](IMPLEMENTATION.md) for technical details and evidence.
 
-## Validation status
+## Historical 3.3.0 validation
 
 **3.3.0 passed 111 isolated checks** (106 XCTest and 5 Swift Testing) and **12 physical Debug acceptance checks** in 30.34 seconds. The device checks covered stationary location, scheduled departure, natural/skipped visits and lights, playback, arrival retargeting, impossible-arrival feedback, live edits, End holding, and Restore.
 

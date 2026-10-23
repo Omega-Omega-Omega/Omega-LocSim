@@ -466,4 +466,233 @@ final class SimulationTimingTests: XCTestCase {
         XCTAssertLessThan(session.remainingDuration, 1, "Clearing a deadline does not reroll an already green light")
     }
 
+    func testLateProgressiveMetadataAfterFallbackStartPreservesLiveDeadlineAndAdaptsOnlyAsNeeded() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1,
+            wallNow: { now }, sender: { _ in 0 })
+        defer { session.stop() }
+        session.speedMetersPerSecond = 10
+        let stops = [SimulationStop(title: "Start", coordinate: .init(latitude: 33, longitude: -112)),
+                     SimulationStop(title: "Visit", coordinate: .init(latitude: 33.005, longitude: -112), dwellSeconds: 20),
+                     SimulationStop(title: "Finish", coordinate: .init(latitude: 33.01, longitude: -112))]
+        let geometry = RouteGeometry(stops.map(\.coordinate))
+        var initial = PlannedRoute(coordinates: stops.map(\.coordinate), stopDistances: Array(geometry.distances.dropFirst()), stops: stops)
+        initial.arrivalDate = now.addingTimeInterval(180)
+        let applied = await session.play(initial)
+        XCTAssertTrue(applied)
+        try await waitUntil { session.playbackState == .playing && session.traveled > 0 }
+        XCTAssertEqual(session.effectiveSpeedMetersPerSecond, 10, accuracy: 0.001)
+        XCTAssertEqual(session.arrivalAdjustment?.skippedTrafficLightCount, 0)
+        let acceptedBeforeMetadata = session.traveled
+
+        // First network chunk arrives after fallback playback has already moved.
+        var partial = initial
+        partial.speedSegments = [.init(startDistance: 0, endDistance: initial.distance * 0.3, metersPerSecond: 10)]
+        partial.trafficLights = [.init(distance: initial.distance * 0.1, delaySeconds: 60),
+                                 .init(distance: initial.distance * 0.2, delaySeconds: 30)]
+        XCTAssertTrue(session.applyRoadMetadata(partial))
+        XCTAssertEqual(session.playbackState, .playing)
+        XCTAssertEqual(session.traveled, acceptedBeforeMetadata)
+        XCTAssertEqual(session.plannedRoute?.speedSegments, partial.speedSegments)
+        XCTAssertEqual(session.plannedRoute?.arrivalDate, initial.arrivalDate)
+        XCTAssertEqual(session.arrivalAdjustment?.skippedTrafficLightCount, 1, "Only the longest red needs to change")
+        XCTAssertEqual(session.arrivalAdjustment!.speedMultiplier, 1, accuracy: 0.001)
+        XCTAssertEqual(session.remainingDuration,
+            (initial.distance - session.traveled) / 10 + 20 + 30, accuracy: 0.01)
+
+        // The user adjusts arrival while a second network chunk is pending.
+        let updatedDeadline = now.addingTimeInterval(160)
+        session.updateArrivalDate(updatedDeadline)
+        var complete = initial // Deliberately carries the old 180-second target.
+        complete.speedSegments = [.init(startDistance: 0, endDistance: initial.distance, metersPerSecond: 5)]
+        complete.trafficLights = [.init(distance: initial.distance * 0.1, delaySeconds: 60),
+                                  .init(distance: initial.distance * 0.2, delaySeconds: 30),
+                                  .init(distance: initial.distance * 0.8, delaySeconds: 20)]
+        XCTAssertTrue(session.applyRoadMetadata(complete))
+        XCTAssertEqual(session.playbackState, .playing)
+        XCTAssertEqual(session.plannedRoute?.arrivalDate, updatedDeadline, "Metadata cannot overwrite a newer arrival choice")
+        XCTAssertEqual(session.plannedRoute?.speedSegments, complete.speedSegments)
+        XCTAssertEqual(session.plannedRoute?.trafficLights.count, 3)
+        XCTAssertEqual(session.arrivalAdjustment?.skippedTrafficLightCount, 3)
+        XCTAssertGreaterThan(session.arrivalAdjustment!.speedMultiplier, 1)
+        XCTAssertGreaterThan(session.effectiveSpeedMetersPerSecond, 5)
+        XCTAssertLessThanOrEqual(session.effectiveSpeedMetersPerSecond, ArrivalAdjustment.maximumSpeedMetersPerSecond)
+        XCTAssertTrue(session.arrivalAdjustment!.isFeasible)
+        XCTAssertLessThanOrEqual(session.remainingDuration, updatedDeadline.timeIntervalSince(now))
+        XCTAssertGreaterThanOrEqual(session.remainingDuration, 20, "The intermediate stay remains mandatory")
+        try await waitUntil { session.traveled > acceptedBeforeMetadata }
+    }
+
+    func testLateMappedSpeedReplacesFallbackDuringPlaybackWithoutRestartingRoute() async throws {
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1, sender: { _ in 0 })
+        defer { session.stop() }
+        session.speedMetersPerSecond = 10
+        let stops = [SimulationStop(title: "Start", coordinate: .init(latitude: 33, longitude: -112)),
+                     SimulationStop(title: "Finish", coordinate: .init(latitude: 33.01, longitude: -112))]
+        let geometry = RouteGeometry(stops.map(\.coordinate))
+        let initial = PlannedRoute(coordinates: stops.map(\.coordinate), stopDistances: [geometry.length], stops: stops)
+        let applied = await session.play(initial)
+        XCTAssertTrue(applied)
+        try await waitUntil { session.traveled > 0 }
+        let before = session.traveled
+        var metadata = initial
+        metadata.speedSegments = [.init(startDistance: 0, endDistance: initial.distance, metersPerSecond: 30)]
+        metadata.trafficLights = [.init(distance: initial.distance / 2, delaySeconds: 30)]
+        XCTAssertTrue(session.applyRoadMetadata(metadata))
+        XCTAssertEqual(session.playbackState, .playing)
+        XCTAssertEqual(session.traveled, before)
+        XCTAssertEqual(session.plannedRoute?.id, initial.id)
+        XCTAssertEqual(session.effectiveSpeedMetersPerSecond, 30, accuracy: 0.001)
+        XCTAssertEqual(session.remainingDuration, (initial.distance - before) / 30 + 30, accuracy: 0.01)
+        try await waitUntil { session.traveled > before }
+    }
+
+    func testInFlightMetadataCommitsSpeedLightsAndArrivalPacingAsOneSnapshot() async throws {
+        let now = Date(timeIntervalSince1970: 20_000)
+        var gate: CheckedContinuation<Int32, Never>?
+        var calls = 0
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1,
+            wallNow: { now }, sender: { _ in
+                calls += 1
+                if calls == 2 { return await withCheckedContinuation { gate = $0 } }
+                return 0
+            })
+        defer { gate?.resume(returning: 0); session.stop() }
+        session.speedMetersPerSecond = 10
+        let stops = [SimulationStop(title: "Start", coordinate: .init(latitude: 33, longitude: -112)),
+                     SimulationStop(title: "Finish", coordinate: .init(latitude: 33.01, longitude: -112))]
+        let geometry = RouteGeometry(stops.map(\.coordinate))
+        var initial = PlannedRoute(coordinates: stops.map(\.coordinate), stopDistances: [geometry.length], stops: stops)
+        initial.arrivalDate = now.addingTimeInterval(100)
+        let applied = await session.play(initial)
+        XCTAssertTrue(applied)
+        try await waitUntil { gate != nil }
+        let oldSpeed = session.effectiveSpeedMetersPerSecond
+        let oldDuration = session.remainingDuration
+        var partial = initial
+        partial.speedSegments = [.init(startDistance: 0, endDistance: initial.distance, metersPerSecond: 7)]
+        partial.trafficLights = [.init(distance: initial.distance / 2, delaySeconds: 60)]
+        XCTAssertTrue(session.applyRoadMetadata(partial))
+        XCTAssertTrue(session.plannedRoute!.speedSegments.isEmpty, "Do not publish half a metadata transaction")
+        XCTAssertEqual(session.effectiveSpeedMetersPerSecond, oldSpeed, accuracy: 0.0001)
+        XCTAssertEqual(session.remainingDuration, oldDuration, accuracy: 0.0001)
+        var complete = initial
+        complete.speedSegments = [.init(startDistance: 0, endDistance: initial.distance, metersPerSecond: 5)]
+        complete.trafficLights = [.init(distance: initial.distance / 2, delaySeconds: 60),
+                                  .init(distance: initial.distance * 0.8, delaySeconds: 30)]
+        XCTAssertTrue(session.applyRoadMetadata(complete))
+        let newTarget = now.addingTimeInterval(120)
+        session.updateArrivalDate(newTarget)
+        gate?.resume(returning: 0); gate = nil
+        try await waitUntil { session.traveled > 0 && session.plannedRoute?.speedSegments == complete.speedSegments }
+        XCTAssertEqual(session.plannedRoute?.arrivalDate, newTarget)
+        XCTAssertEqual(session.plannedRoute?.trafficLights.count, 2, "The newest cumulative batch wins")
+        XCTAssertEqual(session.arrivalAdjustment?.skippedTrafficLightCount, 2)
+        XCTAssertGreaterThan(session.arrivalAdjustment!.speedMultiplier, 1)
+        XCTAssertTrue(session.arrivalAdjustment!.isFeasible)
+        XCTAssertLessThanOrEqual(session.remainingDuration, newTarget.timeIntervalSince(now))
+        XCTAssertEqual(session.playbackState, .playing)
+    }
+
+    func testDisablingLightsDuringAcceptedMovementSurvivesNewerMetadataAndPreservesPause() async throws {
+        for pauseDuringSend in [false, true] {
+            var gate: CheckedContinuation<Int32, Never>?
+            var calls = 0
+            let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1, sender: { _ in
+                calls += 1
+                if calls == 2 { return await withCheckedContinuation { gate = $0 } }
+                return 0
+            })
+            defer { gate?.resume(returning: 0); session.stop() }
+            session.speedMetersPerSecond = 1
+            var planned = route()
+            planned.trafficLights = [.init(distance: 0.005, delaySeconds: 90)]
+            let applied = await session.play(planned)
+            XCTAssertTrue(applied)
+            try await waitUntil { gate != nil }
+            XCTAssertNil(session.currentWait, "The device has not accepted the light's position yet")
+
+            var disabled = planned
+            disabled.trafficLights = []
+            XCTAssertTrue(session.applyRoadMetadata(disabled, clearCurrentTrafficLight: true))
+            var newest = disabled
+            newest.speedSegments = [.init(startDistance: 0, endDistance: planned.distance, metersPerSecond: 1)]
+            XCTAssertTrue(session.applyRoadMetadata(newest), "A later cumulative batch must keep the queued clear instruction")
+            if pauseDuringSend { session.pausePlayback() }
+            gate?.resume(returning: 0); gate = nil
+            try await waitUntil { session.plannedRoute?.speedSegments == newest.speedSegments }
+            XCTAssertGreaterThanOrEqual(session.traveled, 0.005)
+            XCTAssertNil(session.currentWait, "Accepting the pending point must not start the old red-light wait")
+            XCTAssertEqual(session.playbackState, pauseDuringSend ? .paused : .playing)
+            XCTAssertTrue(session.plannedRoute!.trafficLights.isEmpty)
+            XCTAssertLessThan(session.remainingDuration, 2)
+            session.stop()
+        }
+    }
+
+    func testDisablingLightsDuringRejectedMovementKeepsRoutePausedWithoutRestoringRed() async throws {
+        var gate: CheckedContinuation<Int32, Never>?
+        var calls = 0
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1, sender: { _ in
+            calls += 1
+            if calls == 2 { return await withCheckedContinuation { gate = $0 } }
+            return 0
+        })
+        defer { gate?.resume(returning: 0); session.stop() }
+        session.speedMetersPerSecond = 1
+        var planned = route()
+        planned.trafficLights = [.init(distance: 0.005, delaySeconds: 90)]
+        let applied = await session.play(planned)
+        XCTAssertTrue(applied)
+        try await waitUntil { gate != nil }
+        planned.trafficLights = []
+        XCTAssertTrue(session.applyRoadMetadata(planned, clearCurrentTrafficLight: true))
+        gate?.resume(returning: -1); gate = nil
+        try await waitUntil { session.playbackError != nil }
+        XCTAssertEqual(session.playbackState, .paused)
+        XCTAssertEqual(session.traveled, 0)
+        XCTAssertNil(session.currentWait)
+        XCTAssertTrue(session.plannedRoute!.trafficLights.isEmpty)
+        session.resumePlayback()
+        try await waitUntil { session.traveled > 0.02 }
+        XCTAssertNil(session.currentWait, "Resume must not restore a light removed while its first update failed")
+    }
+
+    func testDisablingLightsReleasesCurrentRedWithoutResumingPausedRoute() async throws {
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1, sender: { _ in 0 })
+        defer { session.stop() }
+        var planned = route()
+        planned.trafficLights = [.init(distance: 0, delaySeconds: 90)]
+        let applied = await session.play(planned)
+        XCTAssertTrue(applied)
+        try await waitUntil { session.currentWait?.kind == .trafficLight }
+        _ = await session.pauseAndWait()
+        planned.trafficLights = []
+        XCTAssertTrue(session.applyRoadMetadata(planned, clearCurrentTrafficLight: true))
+        XCTAssertNil(session.currentWait)
+        XCTAssertEqual(session.playbackState, .paused)
+        XCTAssertEqual(session.traveled, 0)
+    }
+
+    func testDisablingLightsPreservesPausedStopAndDepartureWaits() async throws {
+        for departure in [false, true] {
+            let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1, sender: { _ in 0 })
+            defer { session.stop() }
+            session.speedMetersPerSecond = 1_000
+            var planned = route(dwell: 30)
+            if departure { planned.departureDate = Date().addingTimeInterval(30) }
+            let expected: SimulationWait.Kind = departure ? .departure : .stop(title: "Coffee")
+            let applied = await session.play(planned)
+            XCTAssertTrue(applied)
+            try await waitUntil { session.currentWait?.kind == expected }
+            _ = await session.pauseAndWait()
+            let wait = session.currentWait!
+            XCTAssertTrue(session.applyRoadMetadata(planned, clearCurrentTrafficLight: true))
+            XCTAssertEqual(session.currentWait?.kind, expected)
+            XCTAssertEqual(session.currentWait?.remainingSeconds, wait.remainingSeconds)
+            XCTAssertEqual(session.playbackState, .paused)
+            session.stop()
+        }
+    }
+
 }

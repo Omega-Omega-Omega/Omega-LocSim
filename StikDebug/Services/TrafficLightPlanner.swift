@@ -15,14 +15,11 @@ final class TrafficLightPlanner {
     private var prefersMirror = false
     private var providerCooldowns: [String: Date] = [:]
     private let session: URLSession
-    private let pause: @MainActor (Double) async throws -> Void
+    private let now: @MainActor () -> Date
 
-    init(session: URLSession = .shared,
-         pause: @escaping @MainActor (Double) async throws -> Void = { seconds in
-             try await Task.sleep(for: .seconds(seconds))
-         }) {
+    init(session: URLSession = .shared, now: @escaping @MainActor () -> Date = Date.init) {
         self.session = session
-        self.pause = pause
+        self.now = now
     }
 
     func enrich(_ route: PlannedRoute, probability: Double,
@@ -40,16 +37,18 @@ final class TrafficLightPlanner {
         var result = TrafficLightPlanResult(route: route, notice: "Loading road details…", signalCount: 0)
         while start < coverageEnd {
             try Task.checkCancellation()
-            let end = min(coverageEnd, start + (start == 0 ? 8_000 : 20_000))
+            let end = min(coverageEnd, start + (start == 0 ? 1_500 : 6_000))
             let points = RoadMetadataMatcher.queryPoints(geometry, from: start, to: end)
             let query = Self.query(points: points, includeLights: includeTrafficLights)
             let response: RoadMetadataResponse
-            if let saved = cache[query], Date().timeIntervalSince(saved.0) < 3_600 {
+            if let saved = cache[query], now().timeIntervalSince(saved.0) < 3_600 {
                 response = saved.1
             } else {
                 response = try await fetch(query: query)
-                if cache.count >= 24 { cache.removeAll(keepingCapacity: true) }
-                cache[query] = (Date(), response)
+                if cache.count >= 64, let oldest = cache.min(by: { $0.value.0 < $1.value.0 })?.key {
+                    cache.removeValue(forKey: oldest)
+                }
+                cache[query] = (now(), response)
             }
             try Task.checkCancellation()
             for element in response.elements { elements["\(element.type):\(element.id)"] = element }
@@ -70,38 +69,27 @@ final class TrafficLightPlanner {
         let primary = "https://overpass-api.de/api/interpreter"
         let mirror = "https://overpass.private.coffee/api/interpreter"
         let providers = prefersMirror ? [mirror, primary] : [primary, mirror]
-        // One primary attempt and at most two mirror attempts per chunk, always
-        // sequential. Reuse a working mirror for later chunks, but allow the
-        // primary to recover if that mirror later fails.
+        // Bound a failed pass to two short requests. A busy host gets a cooldown;
+        // the route-owned task retries later while playback keeps moving.
         for provider in providers {
             try Task.checkCancellation()
-            if let until = providerCooldowns[provider], until > Date() { continue }
-            let attemptLimit = provider == primary ? 1 : 2
-            for attempt in 0..<attemptLimit {
-                try Task.checkCancellation()
-                do {
-                    let response = try await fetch(query: query, provider: provider)
-                    prefersMirror = provider == mirror
-                    providerCooldowns[provider] = nil
-                    return response
-                } catch let failure as ProviderFailure {
-                    if failure.cooldown {
-                        providerCooldowns[provider] = Date().addingTimeInterval(failure.delay)
-                    }
-                    // A cooldown applies only to its host. Fail over immediately
-                    // instead of delaying the first request to the other host.
-                    guard attempt + 1 < attemptLimit, failure.delay <= 30 else { break }
-                    try await pause(failure.delay)
-                }
+            if let until = providerCooldowns[provider], until > now() { continue }
+            do {
+                let response = try await fetch(query: query, provider: provider)
+                prefersMirror = provider == mirror
+                providerCooldowns[provider] = nil
+                return response
+            } catch let failure as ProviderFailure {
+                providerCooldowns[provider] = now().addingTimeInterval(max(30, failure.delay))
             }
         }
         try Task.checkCancellation()
-        throw RoadMetadataError.unavailable
+        let nextAttempt = providers.compactMap { providerCooldowns[$0] }.min()
+        throw RoadMetadataError.serviceUnavailable(retryAfter: max(0, nextAttempt?.timeIntervalSince(now()) ?? 30))
     }
 
     private struct ProviderFailure: Error {
-        var delay: Double = 2
-        var cooldown = false
+        var delay: Double = 30
     }
 
     private static let transientStatuses = [408, 429, 500, 502, 503, 504]
@@ -109,10 +97,10 @@ final class TrafficLightPlanner {
     private func fetch(query: String, provider: String) async throws -> RoadMetadataResponse {
         var request = URLRequest(url: URL(string: provider)!)
         request.httpMethod = "POST"
-        request.timeoutInterval = 25
+        request.timeoutInterval = 10
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("OmegaLocSim/3.2 (https://github.com/Omega-Omega-Omega/Omega-LocSim)", forHTTPHeaderField: "User-Agent")
+        request.setValue("OmegaLocSim/3.3.1 (https://github.com/Omega-Omega-Omega/Omega-LocSim)", forHTTPHeaderField: "User-Agent")
         var body = URLComponents()
         body.queryItems = [URLQueryItem(name: "data", value: query)]
         request.httpBody = body.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
@@ -127,15 +115,14 @@ final class TrafficLightPlanner {
                 throw CancellationError()
             }
             guard let error = error as? URLError,
-                  [.timedOut, .networkConnectionLost, .cannotConnectToHost,
+                  [.timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
                    .cannotFindHost, .dnsLookupFailed].contains(error.code) else { throw RoadMetadataError.unavailable }
             throw ProviderFailure()
         }
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse else { throw RoadMetadataError.unavailable }
         if Self.transientStatuses.contains(http.statusCode) {
-            throw ProviderFailure(delay: Self.providerDelay(response: http, attempt: 0, now: Date()),
-                                  cooldown: http.statusCode == 429 || http.value(forHTTPHeaderField: "Retry-After") != nil)
+            throw ProviderFailure(delay: Self.providerDelay(response: http, now: now()))
         }
         guard (200...299).contains(http.statusCode), data.count < 24_000_000 else {
             throw RoadMetadataError.unavailable
@@ -147,14 +134,8 @@ final class TrafficLightPlanner {
         return decoded
     }
 
-    static func retryDelay(response: HTTPURLResponse, attempt: Int, now: Date = Date()) -> Double? {
-        guard (0..<2).contains(attempt), transientStatuses.contains(response.statusCode) else { return nil }
-        let delay = providerDelay(response: response, attempt: attempt, now: now)
-        return delay <= 30 ? delay : nil
-    }
-
-    private static func providerDelay(response: HTTPURLResponse, attempt: Int, now: Date) -> Double {
-        let backoff = response.statusCode == 429 ? 30.0 : Double(2 << attempt)
+    private static func providerDelay(response: HTTPURLResponse, now: Date) -> Double {
+        let backoff = 30.0
         guard let header = response.value(forHTTPHeaderField: "Retry-After") else { return backoff }
         let seconds: Double
         if let value = Double(header.trimmingCharacters(in: .whitespaces)), value.isFinite {
@@ -167,8 +148,7 @@ final class TrafficLightPlanner {
             guard let date = formatter.date(from: header) else { return backoff }
             seconds = date.timeIntervalSince(now)
         }
-        // Retain long cooldowns for subsequent calls, while fetch() declines
-        // to sleep or retry this host automatically for more than 30 seconds.
+        // Retain the full server cooldown across requests, including manual Retry.
         return max(backoff, seconds)
     }
 
@@ -176,13 +156,26 @@ final class TrafficLightPlanner {
         let path = points.map { String(format: "%.6f,%.6f", locale: Locale(identifier: "en_US_POSIX"), $0.latitude, $0.longitude) }.joined(separator: ",")
         let roads = "way(around:45,\(path))[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified|service|living_street)$\"];"
         let lights = includeLights ? "node(around:35,\(path))[\"highway\"=\"traffic_signals\"];" : ""
-        return "[out:json][timeout:18][maxsize:33554432];(\(roads)\(lights));out body geom;"
+        return "[out:json][timeout:8][maxsize:33554432];(\(roads)\(lights));out body geom qt;"
     }
 }
 
 enum RoadMetadataError: LocalizedError {
     case unavailable
-    var errorDescription: String? { "Road details are unavailable. The route can use your fallback speed; retry to add mapped limits and lights." }
+    case serviceUnavailable(retryAfter: TimeInterval)
+
+    var retryAfter: TimeInterval? {
+        if case .serviceUnavailable(let seconds) = self { return seconds }
+        return nil
+    }
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            return "Road details are unavailable. The route can use your fallback speed; retry to add mapped limits and lights."
+        case .serviceUnavailable:
+            return "The road-data servers are busy or not responding. Existing road details are kept while unloaded sections use fallback speed."
+        }
+    }
 }
 
 struct RoadMetadataResponse: Decodable {
@@ -442,14 +435,27 @@ enum RoadMetadataMatcher {
             grouped.append(candidate)
         }
         var updated=route
-        updated.speedSegments=profile
+        // Retrying a partially loaded route starts with the small cached prefix.
+        // Keep already fetched later sections until their own replacement arrives.
+        // Otherwise a successful retry can temporarily erase known highway speeds.
+        updated.speedSegments=profile + route.speedSegments.compactMap { old in
+            guard old.endDistance > end else { return nil }
+            var retained = old
+            retained.startDistance = max(end, old.startDistance)
+            return retained
+        }
         updated.trafficLights=grouped.map { signal in
             .init(distance:signal.distance,delaySeconds:delay(routeID:route.id,signalID:signal.id,visit:Int((signal.distance/100).rounded()),probability:probability))
+        }
+        if includeTrafficLights {
+            updated.trafficLights += route.trafficLights.filter { $0.distance >= end - 8 }
+            updated.trafficLights.sort { $0.distance < $1.distance }
         }
         let known=profile.filter { !$0.isEstimated }.reduce(0) { $0+$1.endDistance-$1.startDistance }
         let partial=end+1<geometry.length
         let percent=end>0 ? Int((known/end*100).rounded()) : 0
-        let notice="\(partial ? "Partial road details" : "Road details ready") · \(percent)% mapped limits" + (includeTrafficLights ? " · \(grouped.count) mapped lights" : "") + ". Other speeds are estimates; light coverage may be incomplete."
-        return .init(route:updated,notice:notice,signalCount:grouped.count)
+        let progress = partial ? "Partial road details (\(Int((end / geometry.length * 100).rounded()))% loaded)" : "Road details ready"
+        let notice="\(progress) · \(percent)% mapped limits" + (includeTrafficLights ? " · \(updated.trafficLights.count) mapped lights" : "") + ". Other speeds are estimates; light coverage may be incomplete."
+        return .init(route:updated,notice:notice,signalCount:updated.trafficLights.count)
     }
 }

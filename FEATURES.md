@@ -1,8 +1,8 @@
-# Omega LocSim 3.3.0 — features and controls
+# Omega LocSim 3.3.1 — features and controls
 
-Reviewed October 23, 2026 for 3.3.0 build 9. This inventory describes the current implementation. **111 isolated checks passed** (106 XCTest and 5 Swift Testing), followed by 12 physical Debug acceptance checks and a ten-minute device protocol with more than nine minutes confirmed in the background. Current evidence and limits appear below; earlier builds remain dated separately in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+Reviewed October 23, 2026 for 3.3.1 build 10. **120 isolated checks passed** (115 XCTest and 5 Swift Testing), two simulator integration checks pass, and the signed Release build succeeds. Smaller progressive requests, automatic recovery during active playback, retained partial data, and late Arrive By adjustments are implemented. Both approved live road-data APIs were unavailable during the latest probes; successful mapped data is not claimed.
 
-**Final Release delivery verified:** the 3.3.0 build 9 Release build and signed/unsigned IPA checks passed. Physical installation and launch succeeded; installed-app inventory confirms **Omega LocSim `com.omega.locsim` 3.3.0 (9)**.
+The final 3.3.1 Release has not been installed or physically tested. Historical 3.3.0 physical checks are dated separately below and in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Browse, search, and map
 
@@ -78,7 +78,7 @@ Existing road legs may be reused. Superseded geometry/metadata cannot publish in
 - **Stay Duration** in an intermediate stop's options opens No delay, wheel presets, and a one-minute stepper from 0 to 1,440 minutes. Save applies it; Cancel preserves it. Reordering carries the duration. Final arrival holds until End or Restore and has no visit timer.
 - **Mapped Road Details** is off by default. Enabling it permits route corridor coordinates to go to `overpass-api.de` and the approved fixed fallback `overpass.private.coffee` for OpenStreetMap road limits/signals. A working mirror can be reused, with primary fallback if needed. Both services are covered by this opt-in; there is no separate mirror switch. See the [Private.coffee service and privacy policy](https://overpass.private.coffee/).
 - **Traffic Lights** enables mapped signals. **Red-light probability** ranges from 0–100% in 1% steps, default 50%. Stable route sampling assigns green or a simulated red wait of 5–90 seconds. These are simulated colors, not live signal phases. Changing the road/light options refreshes applicable metadata while retaining accepted progress.
-- **Metadata status / Retry** shows loading, mapped-limit coverage, light count, partial coverage, or unavailable data. Loading/failure leaves Go available at fallback speed. Successful chunks remain usable if later loading fails. Uncached chunks use at most three sequential HTTP calls across the approved services; cancellation ends retries.
+- **Metadata status / Retry** shows loaded-route progress, mapped-limit coverage, light count, retained partial details, or a retry countdown. Loading/failure leaves Go available at fallback speed. The first 1.5 km publishes before later 6 km chunks. Starting a route keeps loading; editing has a separate lookup. Active routes keep retrying busy services with backoff up to five minutes (longer if requested by the server); previews retry twice. Successful data applies automatically without restarting, including after a fallback start. Arrive By retains the latest deadline and readjusts lights/pace. Each uncached chunk attempts each eligible approved host once, with a 10-second request timeout.
 
 A wait row shows the countdown plus **Leave Now** for departures/visits or **Skip Light** for red lights. Pause freezes the remaining countdown; skipping while paused does not resume movement. Active waits survive route changes, and a wait skipped during replanning is not restored.
 
@@ -104,7 +104,7 @@ The banner shows Simulating, Paused, Leaving later, Staying at stop, Red light, 
 
 ## Coordinate import and Omega Settings
 
-**Places → Import Coordinates**, while browsing, opens Files for GPX, KML/XML, GeoJSON, JSON, CSV, and plain-text coordinates. One coordinate opens a place. Multiple coordinates prepare a path preview with start/end stops and cancel previous draft work. Imported paths use geometry rather than timestamps; changing their stops recalculates MapKit road geometry.
+**Places → Import Coordinates**, while browsing, opens Files for GPX, KML/XML, GeoJSON, JSON, CSV, and plain-text coordinates. One coordinate opens a place. Multiple coordinates prepare a path preview with start/end stops and cancel previous draft work. Imported paths also load optional road details and use geometry rather than timestamps; changing their stops recalculates MapKit road geometry.
 
 Settings retains the Omega icon/branding, version/iOS footer, Built on StikDebug and Omega Source links, Measurement System, pairing-file import and tunnel outcome, Target Device IP and Remote Pairing Port, App Folder, confirmed Redownload DDI and progress, and support/attribution links. **Road Data Backup & Privacy** opens the official fallback-service privacy/terms page. General Settings does not contain the route's scheduling, speed, or traffic-light controls.
 

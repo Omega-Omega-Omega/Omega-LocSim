@@ -44,14 +44,8 @@ struct LocationSimulationView: View {
     @State private var departureDate = Date.now.addingTimeInterval(3600)
     @State private var dwellStopID: UUID?
     @State private var dwellMinutes = 0.0
-    @State private var trafficNotice: String?
-    @State private var plannedTrafficProbability: Double?
-    @State private var plannedTrafficEnabled = false
     @State private var routeTask: Task<Void, Never>?
-    @State private var metadataTask: Task<Void, Never>?
-    @State private var metadataLoading = false
-    @State private var metadataFailed = false
-    @State private var metadataRequestID = UUID()
+    @State private var roadMetadataRequests: [UUID: RoadMetadataRequest] = [:]
     @State private var planner = RoutePlanner()
     @State private var trafficPlanner = TrafficLightPlanner()
     @State private var requestID = UUID()
@@ -72,6 +66,21 @@ struct LocationSimulationView: View {
     @AppStorage("omegaRedLightProbability") private var redLightProbability = 0.5
     @AppStorage("omegaMappedTrafficLights") private var mappedTrafficLights = true
     @AppStorage("omegaRoadMetadataAllowed") private var roadMetadataAllowed = false
+
+    // The moving route and an edit draft may load independently. Keeping each
+    // request with its route prevents an edit or late response from stealing
+    // the active route's work or showing another route's loading status.
+    private struct RoadMetadataRequest {
+        let id = UUID()
+        let probability: Double
+        let includesLights: Bool
+        var task: Task<Void, Never>?
+        var isLoading = true
+        var failed = false
+        var providerUnavailable = false
+        var notice: String?
+        var retryAt: Date?
+    }
 
     private enum SheetScrollTarget: String {
         case top = "sheet-top"
@@ -144,7 +153,10 @@ struct LocationSimulationView: View {
         return "Leave Now"
     }
     private var contentFill: Color { Color(uiColor: .secondarySystemGroupedBackground).opacity(reduceTransparency ? 1 : 0.68) }
-    private var compactDetent: PresentationDetent { .height(dynamicTypeSize.isAccessibilitySize ? 460 : session.currentWait != nil ? 325 : 260) }
+    private var compactDetent: PresentationDetent {
+        let base = dynamicTypeSize.isAccessibilitySize ? 460.0 : session.currentWait != nil ? 325.0 : 260.0
+        return .height(base + (roadMetadataAllowed ? 56 : 0))
+    }
     private var previewDetent: PresentationDetent { .height(dynamicTypeSize.isAccessibilitySize ? 680 : 530) }
     var body: some View {
         MapReader { proxy in
@@ -300,8 +312,7 @@ struct LocationSimulationView: View {
                         // An imported path owns the draft immediately. A previous
                         // MapKit or road-details task must not replace its geometry.
                         routeTask?.cancel(); planner.cancel(); requestID = UUID(); loading = false
-                        metadataTask?.cancel(); metadataRequestID = UUID(); metadataLoading = false
-                        trafficNotice = nil; metadataFailed = false; error = nil
+                        error = nil
                         let geometry = RouteGeometry(points)
                         preview = PlannedRoute(coordinates: points, stopDistances: [geometry.length], stops: [
                             SimulationStop(title: "Imported Start", coordinate: points[0]),
@@ -309,6 +320,7 @@ struct LocationSimulationView: View {
                         ])
                         stops = preview!.stops; selected = nil; needsStart = false; searchTarget = nil; detent = previewDetent
                         hasPresentedRoutePreview = true
+                        if let preview { loadRoadMetadata(for: preview) }
                     }
                 } catch { self.error = error.localizedDescription }
             }
@@ -316,6 +328,14 @@ struct LocationSimulationView: View {
         .tint(OmegaMapPalette.blue)
         .onAppear {
             if FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path) { startTunnelInBackground() }
+            if let route = session.plannedRoute ?? preview { loadRoadMetadata(for: route) }
+        }
+        .onChange(of: session.plannedRoute?.id) { _, _ in
+            pruneRoadMetadataRequests()
+            if let activeRoute = session.plannedRoute { loadRoadMetadata(for: activeRoute) }
+        }
+        .onChange(of: session.playbackState == .arrived) { _, arrived in
+            if arrived, let routeID = session.plannedRoute?.id { cancelRoadMetadata(for: routeID) }
         }
         .onChange(of: query) { _, value in
             placeSearch.update(value, region: searchRegion)
@@ -639,7 +659,10 @@ struct LocationSimulationView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Roads & Traffic Lights").font(.headline)
                 Toggle("Mapped Road Details", isOn: $roadMetadataAllowed)
-                    .onChange(of: roadMetadataAllowed) { _, _ in refreshTrafficPlanIfNeeded() }
+                    .onChange(of: roadMetadataAllowed) { _, _ in
+                        refreshTrafficPlanIfNeeded()
+                        if tripIsVisible, detent != .large { detent = compactDetent }
+                    }
                 if roadMetadataAllowed {
                     Toggle("Traffic Lights", isOn: $mappedTrafficLights)
                         .onChange(of: mappedTrafficLights) { _, _ in refreshTrafficPlanIfNeeded() }
@@ -1013,6 +1036,7 @@ struct LocationSimulationView: View {
                 Button { nameRoute(stops) } label: { Image(systemName: "bookmark").font(.title3).frame(width: 44, height: 44) }
                     .accessibilityLabel("Save this route")
             }
+            compactMetadataStatus(for: preview)
         }.padding(16).background(contentFill, in: RoundedRectangle(cornerRadius: 24))
     }
 
@@ -1063,8 +1087,10 @@ struct LocationSimulationView: View {
             if didStart {
                 library.recordRoute(session.plannedRoute?.stops ?? scheduledRoute.stops)
                 if !wasEditing, let enriched = self.preview, enriched.id == scheduledRoute.id { _ = session.applyRoadMetadata(enriched) }
-                cancelDraft(preserveRoadMetadata: !wasEditing); followsSimulation = true
-                if wasEditing, let currentRoute = session.plannedRoute { loadRoadMetadata(for: currentRoute) }
+                cancelDraft(); followsSimulation = true
+                // A matching preview request continues after Go. Imported or
+                // rebased routes also get a request if none exists yet.
+                if let currentRoute = session.plannedRoute { loadRoadMetadata(for: currentRoute) }
                 if let point = session.coordinate { center(on: point) }
                 detent = compactDetent
             }
@@ -1248,6 +1274,7 @@ struct LocationSimulationView: View {
                     VStack(spacing: 8) { tripActions }
                 }
             }
+            if let activeRoute = session.plannedRoute { compactMetadataStatus(for: activeRoute) }
             routeOptions(active: true)
         }
     }
@@ -1422,16 +1449,13 @@ struct LocationSimulationView: View {
         placeSearch.cancel()
         query = ""; searchTarget = nil; searchFocused = false
     }
-    private func cancelDraft(preserveRoadMetadata: Bool = false) {
-        if !preserveRoadMetadata {
-            metadataTask?.cancel(); metadataRequestID = UUID(); metadataLoading = false
-            trafficNotice = nil; metadataFailed = false
-        }
+    private func cancelDraft() {
         routeTask?.cancel(); planner.cancel(); requestID = UUID(); loading = false
         editing = false; editingRouteID = nil; stops = []; preview = nil; needsStart = false; error = nil
         hasPresentedRoutePreview = false
         leaveLater = false; arriveBy = false; removedStop = nil
         cancelStopSearch()
+        pruneRoadMetadataRequests()
     }
     private func center(on point: CLLocationCoordinate2D) {
         if tripIsVisible {
@@ -1445,6 +1469,7 @@ struct LocationSimulationView: View {
         // Treat explicit stop mutations as edits even if its first request is pending.
         if preservingSheet || preview != nil { hasPresentedRoutePreview = true }
         routeTask?.cancel(); planner.cancel(); requestID = UUID(); preview = nil; loading = false
+        pruneRoadMetadataRequests()
         error = nil
         if stops.count >= 2, !needsStart { calculate() }
     }
@@ -1460,7 +1485,7 @@ struct LocationSimulationView: View {
                 var result = try await planner.calculate(stops: requestedStops)
                 guard !Task.isCancelled, requestID == id else { return }
                 result.stops = stops
-                preview = result; loading = false; trafficNotice = nil
+                preview = result; loading = false
                 loadRoadMetadata(for: result)
                 error = nil
                 fitRouteAboveCard(result)
@@ -1479,67 +1504,155 @@ struct LocationSimulationView: View {
             }
         }
     }
+    @ViewBuilder private func compactMetadataStatus(for route: PlannedRoute) -> some View {
+        if roadMetadataAllowed, let request = roadMetadataRequests[route.id] {
+            let status = request.isLoading
+                ? (request.notice == nil ? "Loading road details…" : "Updating road details…")
+                : request.failed
+                    ? (request.retryAt != nil ? "Road details delayed · Retry scheduled" : request.providerUnavailable ? "Road-data servers unavailable" : "Road details unavailable")
+                    : mappedTrafficLights ? "Road details updated · \(route.trafficLights.count) mapped lights" : "Road details updated"
+            Button { openTiming(forActiveRoute: tripIsVisible) } label: {
+                HStack(spacing: 8) {
+                    if request.isLoading { ProgressView().controlSize(.small) }
+                    else { Image(systemName: request.failed ? "clock.arrow.circlepath" : "checkmark.circle") }
+                    Text(status).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.down").font(.caption)
+                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }.buttonStyle(.plain).foregroundStyle(.secondary)
+                .accessibilityLabel("Road detail status, \(status)")
+                .accessibilityHint("Opens route options.")
+        }
+    }
+    private func metadataRetryStatus(_ retryAt: Date) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let seconds = max(0, Int(ceil(retryAt.timeIntervalSince(context.date))))
+            Text(seconds > 0 ? "Using fallback where needed. Retrying in \(seconds) seconds." : "Using fallback where needed. Retrying shortly…")
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+        }
+    }
     @ViewBuilder private var metadataStatus: some View {
-        if metadataLoading {
-            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Loading road details… ETA will update.") }
-                .font(.caption).foregroundStyle(.secondary)
-        } else if let trafficNotice {
-            HStack(alignment: .firstTextBaseline) {
-                Text(trafficNotice).font(.caption).foregroundStyle(.secondary)
-                if metadataFailed {
-                    Button("Retry") { if let route { loadRoadMetadata(for: route) } }
+        if let route, let request = roadMetadataRequests[route.id] {
+            VStack(alignment: .leading, spacing: 6) {
+                if let notice = request.notice {
+                    Text(notice).font(.caption).foregroundStyle(.secondary)
+                }
+                if request.isLoading {
+                    HStack(alignment: .top, spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(request.notice == nil
+                             ? (session.plannedRoute?.id == route.id
+                                ? "Loading road details. Continuing with fallback speed where needed."
+                                : "Loading road details. You can start now using fallback speed.")
+                             : "Updating remaining road details. New limits and lights apply as they arrive.")
+                            .fixedSize(horizontal: false, vertical: true)
+                    }.font(.caption).foregroundStyle(.secondary)
+                } else if request.failed {
+                    if let retryAt = request.retryAt {
+                        metadataRetryStatus(retryAt)
+                    }
+                    Button("Retry Road Details") { loadRoadMetadata(for: route, force: true) }
                         .font(.caption.weight(.semibold)).frame(minHeight: 44)
                 }
             }
         }
     }
     private func refreshTrafficPlanIfNeeded() {
-        guard var route = preview ?? session.plannedRoute else { return }
-        if !roadMetadataAllowed {
-            route.trafficLights = []; route.speedSegments = []
-            if preview?.id == route.id { preview = route }
-            if session.plannedRoute?.id == route.id { _ = session.applyRoadMetadata(route) }
-            metadataTask?.cancel(); metadataRequestID = UUID(); metadataLoading = false; metadataFailed = false
-            trafficNotice = nil; plannedTrafficEnabled = false; plannedTrafficProbability = nil
-        } else if mappedTrafficLights != plannedTrafficEnabled || redLightProbability != plannedTrafficProbability || route.speedSegments.isEmpty {
-            if !mappedTrafficLights {
+        // These preferences are shared by the live route and its edit draft.
+        // Turning a feature off must take effect on the moving route too.
+        var routes = [UUID: PlannedRoute]()
+        if let activeRoute = session.plannedRoute { routes[activeRoute.id] = activeRoute }
+        if let preview { routes[preview.id] = preview }
+        for var route in routes.values {
+            if !roadMetadataAllowed || !mappedTrafficLights {
                 route.trafficLights = []
+                if !roadMetadataAllowed { route.speedSegments = [] }
                 if preview?.id == route.id { preview = route }
-                if session.plannedRoute?.id == route.id { _ = session.applyRoadMetadata(route) }
+                if session.plannedRoute?.id == route.id {
+                    _ = session.applyRoadMetadata(route, clearCurrentTrafficLight: true)
+                }
             }
-            loadRoadMetadata(for: route)
+            if roadMetadataAllowed { loadRoadMetadata(for: route) }
+            else { cancelRoadMetadata(for: route.id) }
+        }
+        pruneRoadMetadataRequests()
+    }
+    private func cancelRoadMetadata(for routeID: UUID) {
+        let request = roadMetadataRequests.removeValue(forKey: routeID)
+        request?.task?.cancel()
+    }
+    private func canLoadRoadMetadata(for routeID: UUID) -> Bool {
+        if session.plannedRoute?.id == routeID { return session.playbackState != .arrived }
+        return preview?.id == routeID
+    }
+    private func pruneRoadMetadataRequests() {
+        for routeID in Array(roadMetadataRequests.keys) where !canLoadRoadMetadata(for: routeID) {
+            cancelRoadMetadata(for: routeID)
         }
     }
-    private func loadRoadMetadata(for route: PlannedRoute) {
-        metadataTask?.cancel()
-        let id = UUID(); metadataRequestID = id
-        guard roadMetadataAllowed else { metadataLoading = false; return }
+    private func loadRoadMetadata(for route: PlannedRoute, force: Bool = false, automaticRetryCount: Int = 0) {
+        pruneRoadMetadataRequests()
+        guard roadMetadataAllowed else { cancelRoadMetadata(for: route.id); return }
+        guard canLoadRoadMetadata(for: route.id) else { return }
         let probability = redLightProbability
         let includesLights = mappedTrafficLights
-        metadataLoading = true; metadataFailed = false; trafficNotice = nil
-        metadataTask = Task { @MainActor in
+        if !force, let existing = roadMetadataRequests[route.id],
+           existing.probability == probability, existing.includesLights == includesLights {
+            // Preserve in-flight work on Go and editor dismissal. An exhausted
+            // preview gets a fresh attempt once it becomes the moving route.
+            if !existing.failed || !existing.providerUnavailable || existing.task != nil || session.plannedRoute?.id != route.id { return }
+        }
+        let hasRetainedDetails = !route.speedSegments.isEmpty || !route.trafficLights.isEmpty
+        let previousNotice = hasRetainedDetails ? roadMetadataRequests[route.id]?.notice : nil
+        cancelRoadMetadata(for: route.id)
+        let request = RoadMetadataRequest(probability: probability, includesLights: includesLights,
+                                          notice: previousNotice)
+        let id = request.id
+        roadMetadataRequests[route.id] = request
+        roadMetadataRequests[route.id]?.task = Task { @MainActor in
             do {
                 let enriched = try await trafficPlanner.enrich(route, probability: probability, includeTrafficLights: includesLights, onUpdate: { partial in
-                    guard metadataRequestID == id else { return }
+                    guard !Task.isCancelled, roadMetadataRequests[route.id]?.id == id else { return }
                     applyRoadDetails(partial, to: route.id)
                 })
-                guard !Task.isCancelled, metadataRequestID == id else { return }
+                guard !Task.isCancelled, roadMetadataRequests[route.id]?.id == id else { return }
                 applyRoadDetails(enriched, to: route.id)
-                metadataLoading = false
-                plannedTrafficEnabled = includesLights; plannedTrafficProbability = probability
+                roadMetadataRequests[route.id]?.isLoading = false
+                roadMetadataRequests[route.id]?.task = nil
             } catch {
-                guard !Task.isCancelled, metadataRequestID == id else { return }
-                metadataLoading = false; metadataFailed = true
+                guard !Task.isCancelled, roadMetadataRequests[route.id]?.id == id else { return }
+                guard canLoadRoadMetadata(for: route.id) else { cancelRoadMetadata(for: route.id); return }
+                roadMetadataRequests[route.id]?.isLoading = false
+                roadMetadataRequests[route.id]?.failed = true
                 let current = preview?.id == route.id ? preview : session.plannedRoute?.id == route.id ? session.plannedRoute : nil
+                let providerUnavailable = (error as? RoadMetadataError)?.retryAfter != nil
+                roadMetadataRequests[route.id]?.providerUnavailable = providerUnavailable
+                let failure = providerUnavailable ? "Road-data servers are busy or not responding. " : "Road details are unavailable. "
                 if let current, !current.speedSegments.isEmpty || !current.trafficLights.isEmpty {
-                    trafficNotice = "Some road details are retained. Unloaded sections use fallback speed; traffic-light coverage is incomplete."
+                    roadMetadataRequests[route.id]?.notice = failure + "Loaded details are retained. Unloaded sections use fallback speed; traffic-light coverage is incomplete."
                 } else {
-                    trafficNotice = "Road details unavailable. Using fallback speed; traffic lights are not included."
+                    roadMetadataRequests[route.id]?.notice = failure + "Using fallback speed; traffic lights are not included."
                 }
+                // Preview retries are bounded. Once Go succeeds, keep recovering
+                // in the background until arrival, End, or road details are off.
+                guard providerUnavailable, session.plannedRoute?.id == route.id || automaticRetryCount < 2 else {
+                    roadMetadataRequests[route.id]?.task = nil
+                    return
+                }
+                let backoffs = [30.0, 60.0, 120.0, 300.0]
+                let serverDelay = (error as? RoadMetadataError)?.retryAfter ?? 0
+                let delay = max(backoffs[min(automaticRetryCount, backoffs.count - 1)],
+                                serverDelay.isFinite ? max(0, serverDelay) : 0)
+                roadMetadataRequests[route.id]?.retryAt = .now.addingTimeInterval(delay)
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                guard !Task.isCancelled, roadMetadataRequests[route.id]?.id == id,
+                      let current = preview?.id == route.id ? preview : session.plannedRoute?.id == route.id ? session.plannedRoute : nil else { return }
+                loadRoadMetadata(for: current, force: true, automaticRetryCount: automaticRetryCount + 1)
             }
         }
     }
     private func applyRoadDetails(_ result: TrafficLightPlanResult, to routeID: UUID) {
+        guard canLoadRoadMetadata(for: routeID) else { cancelRoadMetadata(for: routeID); return }
         var updated = result.route
         if let current = preview, current.id == routeID {
             updated.stops = current.stops; updated.departureDate = current.departureDate; updated.arrivalDate = current.arrivalDate
@@ -1547,7 +1660,7 @@ struct LocationSimulationView: View {
         }
         if session.plannedRoute?.id == routeID { _ = session.applyRoadMetadata(updated) }
         guard preview?.id == routeID || session.plannedRoute?.id == routeID else { return }
-        trafficNotice = result.notice
+        roadMetadataRequests[routeID]?.notice = result.notice
     }
     private func fitRouteAboveCard(_ route: PlannedRoute) {
         let rect = MKPolyline(coordinates: route.coordinates, count: route.coordinates.count).boundingMapRect

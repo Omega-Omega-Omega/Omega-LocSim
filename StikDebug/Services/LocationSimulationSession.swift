@@ -36,7 +36,11 @@ final class LocationSimulationSession: ObservableObject {
     private var timingEvents: [RouteTimingEvent] = []
     private var nextTimingEvent = 0
     private var pendingMovementDistance: Double?
-    private var pendingRoadMetadata: PlannedRoute?
+    private struct PendingRoadMetadata {
+        var route: PlannedRoute
+        var clearCurrentTrafficLight: Bool
+    }
+    private var pendingRoadMetadata: PendingRoadMetadata?
     private var roadSpeedProfile = RouteSpeedProfile(segments: [], length: 0)
     private var waitClock: TimeInterval?
     private let monotonicNow: @MainActor () -> TimeInterval
@@ -351,7 +355,7 @@ final class LocationSimulationSession: ObservableObject {
                 guard let result = transmission else {
                     if let metadata = pendingRoadMetadata {
                         pendingRoadMetadata = nil
-                        _ = applyRoadMetadata(metadata)
+                        _ = applyRoadMetadata(metadata.route, clearCurrentTrafficLight: metadata.clearCurrentTrafficLight)
                     }
                     return
                 }
@@ -365,7 +369,7 @@ final class LocationSimulationSession: ObservableObject {
                 }
                 if let metadata = pendingRoadMetadata {
                     pendingRoadMetadata = nil
-                    _ = applyRoadMetadata(metadata)
+                    _ = applyRoadMetadata(metadata.route, clearCurrentTrafficLight: metadata.clearCurrentTrafficLight)
                 }
                 if result.code != 0, routeID == activeRouteID {
                     playbackState = .paused
@@ -487,10 +491,22 @@ final class LocationSimulationSession: ObservableObject {
 
     /// Metadata is optional and may arrive after Go. Identity prevents an old
     /// network response from modifying an edited/replaced route. Accepted
-    /// progress, the active wait and pending visits remain untouched.
+    /// progress and pending visits remain untouched. An explicit lights-off
+    /// preference also releases the current red, including one reached by a
+    /// location update that was already in flight when the preference changed.
     @discardableResult
-    func applyRoadMetadata(_ metadataRoute: PlannedRoute) -> Bool {
+    func applyRoadMetadata(_ metadataRoute: PlannedRoute, clearCurrentTrafficLight: Bool = false) -> Bool {
         guard var route = plannedRoute, route.id == metadataRoute.id else { return false }
+        if pendingMovementDistance != nil {
+            // Commit speed, lights and deadline pacing together after the device
+            // accepts or rejects the pending point. Publishing only the speed
+            // profile here would combine new limits with an old pace/ETA.
+            // Later cumulative batches replace the data, but must not discard
+            // an explicit request to release the traffic-light wait.
+            pendingRoadMetadata = PendingRoadMetadata(route: metadataRoute,
+                clearCurrentTrafficLight: clearCurrentTrafficLight || (pendingRoadMetadata?.clearCurrentTrafficLight ?? false))
+            return true
+        }
         route.speedSegments = metadataRoute.speedSegments
         // Progressive Overpass batches rebuild their value objects. Keep the
         // identity of an already known intersection so a green decision is not
@@ -502,13 +518,6 @@ final class LocationSimulationSession: ObservableObject {
         }
         plannedRoute = route
         roadSpeedProfile = RouteSpeedProfile(segments: route.speedSegments, length: geometry.length)
-        if pendingMovementDistance != nil {
-            // Only the result decides whether newly discovered lights were
-            // crossed. Keep them pending rather than discarding a light behind
-            // an in-flight target which the device might reject.
-            pendingRoadMetadata = metadataRoute
-            return true
-        }
         let pendingVisits = timingEvents.dropFirst(nextTimingEvent).filter {
             if case .stop = $0.kind { return true }
             return false
@@ -524,7 +533,11 @@ final class LocationSimulationSession: ObservableObject {
             $0.element.distance == $1.element.distance ? $0.offset < $1.offset : $0.element.distance < $1.element.distance
         }.map(\.element)
         nextTimingEvent = 0
-        refreshArrivalAdjustment()
+        if clearCurrentTrafficLight, currentWait?.kind == .trafficLight {
+            skipCurrentWait()
+        } else {
+            refreshArrivalAdjustment()
+        }
         return true
     }
 
