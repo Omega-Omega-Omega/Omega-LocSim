@@ -168,6 +168,7 @@ struct SettingsView: View {
 
                 Section("Road Data") {
                     Link("© OpenStreetMap contributors", destination: URL(string: "https://www.openstreetmap.org/copyright")!)
+                    Link("Road Data Backup & Privacy", destination: URL(string: "https://overpass.private.coffee/")!)
                     Text("Mapped speed limits when available; estimates otherwise. Simulation only.")
                         .font(.caption).foregroundStyle(.secondary)
                 }

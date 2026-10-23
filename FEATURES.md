@@ -1,6 +1,6 @@
-# Omega LocSim 3.2 — features and controls
+# Omega LocSim 3.2.1 — features and controls
 
-Reviewed October 23, 2026 against the 3.2.0 build 2 source. This inventory describes implemented controls. Validation is summarized below and detailed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+Reviewed October 23, 2026 for 3.2.1 build 3. Current-version results and the 3.2.0 build 2 baseline are listed separately below. This inventory describes the current control set; detailed evidence is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Browse, search, and map
 
@@ -55,9 +55,9 @@ Unchanged road legs may be reused. Superseded geometry and metadata requests can
 
 - **Leave Later** and the **Departure** date/time picker schedule an already-started route. Tap **Start** to accept and hold its starting point until the countdown completes. **Leave Now** skips that wait. This is an active simulation countdown; it does not launch a terminated app. New departures cannot be scheduled from Edit Route.
 - **Stay Duration**, in an intermediate stop's menu, provides **No delay**, wheel presets, and a one-minute stepper from 0 to 1,440 minutes. **Save** applies the visit; **Cancel** preserves it. Reordering carries each stop's duration. The final destination holds until End or Restore and has no visit-duration control.
-- **Mapped Road Details** is an opt-in and is off by default. It sends route corridor coordinates to the approved `overpass-api.de` service to query OpenStreetMap road limits and mapped traffic signals. The app currently has no enabled mirror fallback.
+- **Mapped Road Details** is an opt-in and is off by default. It initially sends route corridor coordinates to `overpass-api.de` and may send the same query to the approved fixed fallback, `overpass.private.coffee`, to query OpenStreetMap road limits and mapped traffic signals. A working mirror can be reused for later requests, with the primary available if the mirror fails. The single opt-in names and covers both services; there is no separate mirror switch. See the [Private.coffee service and privacy policy](https://overpass.private.coffee/).
 - **Traffic Lights** enables mapped signal timing. **Red-light probability** ranges from 0–100% in 1% steps, defaulting to 50%. Stable per-route sampling assigns each matched light green or a simulated red wait of 5–90 seconds. These are simulated colors, not live signal phases. **Skip Light** skips a current red wait.
-- The metadata status shows loading, mapped-limit coverage, mapped-light count, partial coverage, or unavailable data. **Retry** retries the relevant draft/active route. Loading or failure leaves Go available. Successful earlier chunks remain usable if a later chunk fails.
+- The metadata status shows loading, mapped-limit coverage, mapped-light count, partial coverage, or unavailable data. **Retry** retries the relevant draft/active route. Loading or failure leaves Go available. Successful earlier chunks remain usable if a later chunk fails. Uncached chunks use at most three sequential HTTP calls across both approved services; cancellation stops retries and fallback work.
 
 Pause freezes departure, visit, and light countdowns; Resume continues their remaining time. **Leave Now** also skips an intermediate visit. Timers use elapsed simulation time rather than replaying imported timestamps.
 
@@ -92,7 +92,7 @@ The top banner shows **Simulating**, **Paused**, **Leaving later**, **Staying at
 - **Silent Audio** and **Background Location** preferences. At least one option stays enabled; denied location access falls back to silent audio. The background managers recover stopped audio/session state where possible.
 - **Target Device IP** and **Remote Pairing Port** overrides, with discovered/fallback port feedback. Changes restart the tunnel.
 - **App Folder**, confirmed **Redownload DDI**, and download progress/outcome.
-- **OpenStreetMap attribution**, **Pairing File Guide**, **Download LocalDevVPN**, **Discord Support**, and **Done**.
+- **OpenStreetMap attribution**, **Road Data Backup & Privacy** (official Private.coffee service/terms/privacy page), **Pairing File Guide**, **Download LocalDevVPN**, **Discord Support**, and **Done**.
 
 ## Appearance, limits, and validation
 
@@ -100,10 +100,22 @@ Native Liquid Glass is used on iOS 26+ with native material/bordered fallbacks e
 
 Not implemented: joystick, looping routes, saved route libraries, cloud place sync, coordinate export, offline road lookup/routing, timestamp replay, custom acceleration curves, walking/cycling/transit selection, alternative routes, spoken navigation, or Apple Maps account sync.
 
-The 3.2 build passed **76 isolated checks** (71 XCTest and 5 Swift Testing), including 17 road metadata checks. A development build passed nine foreground device checks and a 605-second background run on iPhone 15 Pro Max, iOS 27.0, followed by successful restoration. Foreground light/speed metadata checks used controlled fixture data. Simulator interaction covered autocomplete, Home pin creation/rename/removal, three stops, a one-minute visit, Leave Later, 0/100% probability, Start during metadata loading, Leave Now, speed-mode selection, and Apply & Resume with a retained visit.
+### Recorded 3.2.0 build 2 validation
+
+The 3.2.0 build passed **76 isolated checks** (71 XCTest and 5 Swift Testing), including 17 road metadata checks. A development build passed nine foreground device checks and a 605-second background run on iPhone 15 Pro Max, iOS 27.0, followed by successful restoration. Foreground light/speed metadata checks used controlled fixture data. Simulator interaction covered autocomplete, Home pin creation/rename/removal, three stops, a one-minute visit, Leave Later, 0/100% probability, Start during metadata loading, Leave Now, speed-mode selection, and Apply & Resume with a retained visit.
 
 Physical manual checks confirmed Metric 48 km/h and 1.3 km converting to Imperial 30 mph and 0.8 mi; Go while road metadata was loading with fallback speed; progress from 0.8 to 0.5 mi; Pause and Resume returning to Simulating; Road Limits selection; and 1/85 mph slider endpoints changing ETA. Omega reached **Arrived, 0 min, 0 ft** and Restore cleared simulation.
 
-Apple Maps independently confirmed stationary spoofing, successive movement along one short public test route while Omega was backgrounded, and return to the real region after Restore. A continuous GPS recording was not collected. Live Overpass data, locked-screen/interruption/disconnection endurance, the second physical phone, and iOS 27.0.1 still need separate verification.
+Apple Maps independently confirmed stationary spoofing, successive movement along one short public test route while Omega was backgrounded, and return to the real region after Restore. A continuous GPS recording was not collected. The 3.2.0 live Overpass probes did not establish data availability. New mirror availability, locked-screen/interruption/disconnection endurance, the second physical phone, and iOS 27.0.1 still need separate verification.
 
 The final **3.2.0 build 2 signed Release** was built, packaged, installed, and launched. Inventory verified **Omega LocSim, `com.omega.locsim`, 3.2.0 (2)**. The freshly installed app resolved Apple Park autocomplete; Set Location showed the simulated marker/Holding location; Restore removed them without error. Existing pairing remained usable after the update, and simulation was cleared after the smoke check.
+
+### 3.2.1 build 3 verification
+
+**83 isolated checks passed** (78 XCTest plus 5 Swift Testing), including **24 road metadata tests**. The signed Release build succeeded. Physical installation and launch succeeded; inventory verified **Omega LocSim, `com.omega.locsim`, 3.2.1 (3)**. The signed/unsigned IPA packages were verified.
+
+The installed app's autocomplete found Apple Infinite Loop Campus and Apple Park Visitor Center and prepared a **3.4 mi driving route**. Go was immediately available at **fallback 30 mph** while metadata loaded. Route Timing visibly named both providers, with Mapped Road Details and Traffic Lights enabled and probability at 50%. Go started simulation with a marker and remaining distance falling to **3.3 mi**; Pause displayed Paused.
+
+After the bounded loading attempt, the app displayed **“Road details unavailable. Using fallback speed; traffic lights are not included.”** and Retry. Restore returned to idle Search Omega/Home/School/Work/Library, removing the route, simulated marker, and active banner without error. Simulation was left cleared.
+
+Live road data was **not** successfully received. The approved Mac mirror probe also timed out after 28.0016 seconds with zero bytes (HTTP 000). Fixture transport checks remain separate from a live provider response. The earlier external GPS and ten-minute background observations belong to the 3.2.0 baseline; they were not repeated for 3.2.1.

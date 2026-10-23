@@ -404,7 +404,7 @@ struct LocationSimulationView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } header: { Text("Traffic Lights") } footer: {
-                    Text("Sends this route to OpenStreetMap to find road speeds and mapped lights. Coverage may be incomplete; missing speed limits use road-type estimates. Light colors are simulated.")
+                    Text("Sends route coordinates to overpass-api.de, with Private.coffee as a backup, for OpenStreetMap road speeds and lights. Coverage may be incomplete; missing limits use road-type estimates. Light colors are simulated.")
                 }
                 if let trafficNotice {
                     Section { Text(trafficNotice).font(.callout).foregroundStyle(.secondary) }

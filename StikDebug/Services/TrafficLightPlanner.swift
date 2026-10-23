@@ -12,6 +12,8 @@ struct TrafficLightPlanResult {
 @MainActor
 final class TrafficLightPlanner {
     private var cache: [String: (Date, RoadMetadataResponse)] = [:]
+    private var prefersMirror = false
+    private var providerCooldowns: [String: Date] = [:]
     private let session: URLSession
     private let pause: @MainActor (Double) async throws -> Void
 
@@ -65,7 +67,47 @@ final class TrafficLightPlanner {
     }
 
     private func fetch(query: String) async throws -> RoadMetadataResponse {
-        var request = URLRequest(url: URL(string: "https://overpass-api.de/api/interpreter")!)
+        let primary = "https://overpass-api.de/api/interpreter"
+        let mirror = "https://overpass.private.coffee/api/interpreter"
+        let providers = prefersMirror ? [mirror, primary] : [primary, mirror]
+        // One primary attempt and at most two mirror attempts per chunk, always
+        // sequential. Reuse a working mirror for later chunks, but allow the
+        // primary to recover if that mirror later fails.
+        for provider in providers {
+            try Task.checkCancellation()
+            if let until = providerCooldowns[provider], until > Date() { continue }
+            let attemptLimit = provider == primary ? 1 : 2
+            for attempt in 0..<attemptLimit {
+                try Task.checkCancellation()
+                do {
+                    let response = try await fetch(query: query, provider: provider)
+                    prefersMirror = provider == mirror
+                    providerCooldowns[provider] = nil
+                    return response
+                } catch let failure as ProviderFailure {
+                    if failure.cooldown {
+                        providerCooldowns[provider] = Date().addingTimeInterval(failure.delay)
+                    }
+                    // A cooldown applies only to its host. Fail over immediately
+                    // instead of delaying the first request to the other host.
+                    guard attempt + 1 < attemptLimit, failure.delay <= 30 else { break }
+                    try await pause(failure.delay)
+                }
+            }
+        }
+        try Task.checkCancellation()
+        throw RoadMetadataError.unavailable
+    }
+
+    private struct ProviderFailure: Error {
+        var delay: Double = 2
+        var cooldown = false
+    }
+
+    private static let transientStatuses = [408, 429, 500, 502, 503, 504]
+
+    private func fetch(query: String, provider: String) async throws -> RoadMetadataResponse {
+        var request = URLRequest(url: URL(string: provider)!)
         request.httpMethod = "POST"
         request.timeoutInterval = 25
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -74,41 +116,44 @@ final class TrafficLightPlanner {
         var body = URLComponents()
         body.queryItems = [URLQueryItem(name: "data", value: query)]
         request.httpBody = body.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
-        // The public service can reject a valid, small query while all workers
-        // are occupied. Stay on the approved host and retry only transient
-        // failures, with a bounded cancellation-aware backoff.
-        for attempt in 0..<3 {
+        try Task.checkCancellation()
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
             try Task.checkCancellation()
-            let data: Data
-            let response: URLResponse
-            do {
-                (data, response) = try await session.data(for: request)
-            } catch {
-                try Task.checkCancellation()
-                guard attempt < 2, let error = error as? URLError,
-                      [.timedOut, .networkConnectionLost, .cannotConnectToHost,
-                       .cannotFindHost, .dnsLookupFailed].contains(error.code) else { throw RoadMetadataError.unavailable }
-                try await pause(Double(2 << attempt))
-                continue
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                throw CancellationError()
             }
-            try Task.checkCancellation()
-            guard let http = response as? HTTPURLResponse else { throw RoadMetadataError.unavailable }
-            if let delay = Self.retryDelay(response: http, attempt: attempt) {
-                try await pause(delay)
-                continue
-            }
-            guard (200...299).contains(http.statusCode), data.count < 24_000_000 else {
-                throw RoadMetadataError.unavailable
-            }
-            guard let decoded = try? JSONDecoder().decode(RoadMetadataResponse.self, from: data),
-                  decoded.remark == nil else { throw RoadMetadataError.unavailable }
-            return decoded
+            guard let error = error as? URLError,
+                  [.timedOut, .networkConnectionLost, .cannotConnectToHost,
+                   .cannotFindHost, .dnsLookupFailed].contains(error.code) else { throw RoadMetadataError.unavailable }
+            throw ProviderFailure()
         }
-        throw RoadMetadataError.unavailable
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse else { throw RoadMetadataError.unavailable }
+        if Self.transientStatuses.contains(http.statusCode) {
+            throw ProviderFailure(delay: Self.providerDelay(response: http, attempt: 0, now: Date()),
+                                  cooldown: http.statusCode == 429 || http.value(forHTTPHeaderField: "Retry-After") != nil)
+        }
+        guard (200...299).contains(http.statusCode), data.count < 24_000_000 else {
+            throw RoadMetadataError.unavailable
+        }
+        // Overpass can return HTTP 200 with a runtime-error remark, or an HTML
+        // provider error. Neither is usable metadata and neither is cached.
+        guard let decoded = try? JSONDecoder().decode(RoadMetadataResponse.self, from: data),
+              decoded.remark == nil else { throw ProviderFailure() }
+        return decoded
     }
 
     static func retryDelay(response: HTTPURLResponse, attempt: Int, now: Date = Date()) -> Double? {
-        guard (0..<2).contains(attempt), [429, 502, 503, 504].contains(response.statusCode) else { return nil }
+        guard (0..<2).contains(attempt), transientStatuses.contains(response.statusCode) else { return nil }
+        let delay = providerDelay(response: response, attempt: attempt, now: now)
+        return delay <= 30 ? delay : nil
+    }
+
+    private static func providerDelay(response: HTTPURLResponse, attempt: Int, now: Date) -> Double {
         let backoff = response.statusCode == 429 ? 30.0 : Double(2 << attempt)
         guard let header = response.value(forHTTPHeaderField: "Retry-After") else { return backoff }
         let seconds: Double
@@ -122,9 +167,8 @@ final class TrafficLightPlanner {
             guard let date = formatter.date(from: header) else { return backoff }
             seconds = date.timeIntervalSince(now)
         }
-        // A longer server cooldown ends automatic work instead of ignoring it
-        // or keeping a route metadata task asleep indefinitely.
-        guard seconds <= 30 else { return nil }
+        // Retain long cooldowns for subsequent calls, while fetch() declines
+        // to sleep or retry this host automatically for more than 30 seconds.
         return max(backoff, seconds)
     }
 

@@ -142,7 +142,7 @@ final class RoadMetadataTests: XCTestCase {
     }
 
     @MainActor
-    func testTransientHTTPFailureRetriesThenCachesDecodedRoads() async throws {
+    func testTransientHTTPFailureSwitchesToApprovedMirrorThenCachesDecodedRoads() async throws {
         let fixture = RoadMetadataURLProtocol.Fixture(statuses: [502, 200])
         let session = RoadMetadataURLProtocol.session(for: fixture)
         defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
@@ -152,7 +152,7 @@ final class RoadMetadataTests: XCTestCase {
         var updates = 0
         let result = try await planner.enrich(source, probability: 1, onUpdate: { _ in updates += 1 })
         XCTAssertEqual(fixture.requests.count, 2)
-        XCTAssertEqual(pauses, [2])
+        XCTAssertTrue(pauses.isEmpty, "Failover must precede any same-host retry delay")
         XCTAssertEqual(updates, 1)
         XCTAssertEqual(result.signalCount, 1)
         XCTAssertEqual(result.route.speedSegments.first!.metersPerSecond, 35*0.44704, accuracy: 0.001)
@@ -162,12 +162,20 @@ final class RoadMetadataTests: XCTestCase {
         XCTAssertEqual(sent.url?.host, "overpass-api.de")
         XCTAssertEqual(sent.value(forHTTPHeaderField: "Accept"), "application/json")
         XCTAssertTrue(sent.value(forHTTPHeaderField: "User-Agent")?.hasPrefix("OmegaLocSim/") == true)
+        let mirrored = fixture.requests[1]
+        XCTAssertEqual(mirrored.url?.absoluteString, "https://overpass.private.coffee/api/interpreter")
+        XCTAssertEqual(mirrored.httpMethod, sent.httpMethod)
+        for header in ["Accept", "Content-Type", "User-Agent"] {
+            XCTAssertEqual(mirrored.value(forHTTPHeaderField: header), sent.value(forHTTPHeaderField: header))
+        }
+        XCTAssertFalse(fixture.bodies[0].isEmpty)
+        XCTAssertEqual(fixture.bodies[0], fixture.bodies[1], "Only the approved destination may change")
         _ = try await planner.enrich(source, probability: 1)
         XCTAssertEqual(fixture.requests.count, 2, "Only a successful decoded response should be reused")
     }
 
     @MainActor
-    func testTransientConnectionFailureRetriesThenDecodesRoads() async throws {
+    func testTransientConnectionFailureSwitchesToMirrorThenDecodesRoads() async throws {
         let fixture = RoadMetadataURLProtocol.Fixture(statuses: [URLError.timedOut.rawValue, 200])
         let session = RoadMetadataURLProtocol.session(for: fixture)
         defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
@@ -175,7 +183,8 @@ final class RoadMetadataTests: XCTestCase {
         let planner = TrafficLightPlanner(session: session, pause: { pauses.append($0) })
         let result = try await planner.enrich(route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.99)]), probability: 1)
         XCTAssertEqual(fixture.requests.count, 2)
-        XCTAssertEqual(pauses, [2])
+        XCTAssertTrue(pauses.isEmpty)
+        XCTAssertEqual(fixture.requests.map { $0.url!.host! }, ["overpass-api.de", "overpass.private.coffee"])
         XCTAssertEqual(result.signalCount, 1)
     }
 
@@ -192,7 +201,8 @@ final class RoadMetadataTests: XCTestCase {
             XCTFail("An exhausted retry budget should fail")
         } catch { XCTAssertTrue(error is RoadMetadataError) }
         XCTAssertEqual(fixture.requests.count, 3)
-        XCTAssertEqual(pauses, [2, 4])
+        XCTAssertEqual(pauses, [2])
+        XCTAssertEqual(fixture.requests.map { $0.url!.host! }, ["overpass-api.de", "overpass.private.coffee", "overpass.private.coffee"])
     }
 
     @MainActor
@@ -210,7 +220,7 @@ final class RoadMetadataTests: XCTestCase {
 
     @MainActor
     func testCancellationDuringBackoffStopsRequestsAndPublication() async {
-        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [502, 200])
+        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [502, 502, 200])
         let session = RoadMetadataURLProtocol.session(for: fixture)
         defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
         let planner = TrafficLightPlanner(session: session, pause: { _ in throw CancellationError() })
@@ -219,12 +229,12 @@ final class RoadMetadataTests: XCTestCase {
                                         onUpdate: { _ in XCTFail("Cancelled metadata was published") })
             XCTFail("Cancellation during sleep should propagate")
         } catch { XCTAssertTrue(error is CancellationError) }
-        XCTAssertEqual(fixture.requests.count, 1)
+        XCTAssertEqual(fixture.requests.count, 2)
     }
 
     @MainActor
     func testThirtySecondRateLimitBackoffCancelsImmediately() async {
-        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [429, 200])
+        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [502, 429, 200])
         let session = RoadMetadataURLProtocol.session(for: fixture)
         defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
         let sleeping = expectation(description: "Rate-limit backoff started")
@@ -242,7 +252,7 @@ final class RoadMetadataTests: XCTestCase {
         do { _ = try await task.value; XCTFail("A cancelled backoff should fail") }
         catch { XCTAssertTrue(error is CancellationError) }
         XCTAssertLessThan(Date().timeIntervalSince(cancelledAt), 1)
-        XCTAssertEqual(fixture.requests.count, 1)
+        XCTAssertEqual(fixture.requests.count, 2)
     }
 
     @MainActor
@@ -266,6 +276,113 @@ final class RoadMetadataTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeRemarkAndMalformedProviderResponseFailOverWithoutCaching() async throws {
+        for body in ["{\"elements\":[],\"remark\":\"runtime error: Query timed out\"}", "<html>Provider unavailable</html>"] {
+            let fixture = RoadMetadataURLProtocol.Fixture(statuses: [200, 200], responseBodies: [0: body])
+            let session = RoadMetadataURLProtocol.session(for: fixture)
+            defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
+            let planner = TrafficLightPlanner(session: session, pause: { _ in XCTFail("Failover must be immediate") })
+            let source = route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.99)])
+            let result = try await planner.enrich(source, probability: 1)
+            XCTAssertEqual(result.signalCount, 1)
+            XCTAssertEqual(fixture.requests.map { $0.url!.host! }, ["overpass-api.de", "overpass.private.coffee"])
+            let cached = try await planner.enrich(source, probability: 1)
+            XCTAssertEqual(cached.signalCount, 1)
+            XCTAssertEqual(fixture.requests.count, 2)
+        }
+    }
+
+    @MainActor
+    func testSuccessfulMirrorIsReusedForLaterChunksAndCanFailBackToPrimary() async throws {
+        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [502, 200, 200, 502, 502, 200])
+        let session = RoadMetadataURLProtocol.session(for: fixture)
+        defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
+        var pauses: [Double] = []
+        let planner = TrafficLightPlanner(session: session, pause: { pauses.append($0) })
+        var updates: [TrafficLightPlanResult] = []
+        let longRoute = route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.8)])
+        _ = try await planner.enrich(longRoute, probability: 1, onUpdate: { updates.append($0) })
+        XCTAssertEqual(updates.count, 2)
+        XCTAssertTrue(updates[0].notice.contains("Partial road details"))
+        XCTAssertEqual(fixture.requests.map { $0.url!.host! }, ["overpass-api.de", "overpass.private.coffee", "overpass.private.coffee"])
+        let otherRoute = route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.98)])
+        _ = try await planner.enrich(otherRoute, probability: 1)
+        XCTAssertEqual(Array(fixture.requests.suffix(3)).map { $0.url!.host! }, ["overpass.private.coffee", "overpass.private.coffee", "overpass-api.de"])
+        XCTAssertEqual(pauses, [2])
+    }
+
+    @MainActor
+    func testPrimaryRateLimitSwitchesImmediatelyAndBothHostsRespectLongCooldowns() async {
+        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [429, 503], responseHeaders: [0: ["Retry-After": "120"], 1: ["Retry-After": "120"]])
+        let session = RoadMetadataURLProtocol.session(for: fixture)
+        defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
+        let planner = TrafficLightPlanner(session: session, pause: { _ in XCTFail("Long cooldowns must not keep the task sleeping") })
+        let source = route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.99)])
+        for _ in 0..<2 {
+            do {
+                _ = try await planner.enrich(source, probability: 1, onUpdate: { _ in XCTFail("Failed metadata was published") })
+                XCTFail("Both providers are cooling down")
+            } catch { XCTAssertTrue(error is RoadMetadataError) }
+        }
+        XCTAssertEqual(fixture.requests.map { $0.url!.host! }, ["overpass-api.de", "overpass.private.coffee"])
+    }
+
+    @MainActor
+    func testMirrorRetryAfterIsObservedBeforeItsSecondAttempt() async throws {
+        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [500, 503, 200], responseHeaders: [1: ["Retry-After": "12"]])
+        let session = RoadMetadataURLProtocol.session(for: fixture)
+        defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
+        var pauses: [Double] = []
+        let planner = TrafficLightPlanner(session: session, pause: { pauses.append($0) })
+        let result = try await planner.enrich(route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.99)]), probability: 1)
+        XCTAssertEqual(result.signalCount, 1)
+        XCTAssertEqual(pauses, [12])
+        XCTAssertEqual(fixture.requests.count, 3)
+    }
+
+    @MainActor
+    func testURLCancellationNeverTriggersFailover() async {
+        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [URLError.cancelled.rawValue, 200])
+        let session = RoadMetadataURLProtocol.session(for: fixture)
+        defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
+        let planner = TrafficLightPlanner(session: session, pause: { _ in XCTFail("Cancellation must not retry") })
+        do {
+            _ = try await planner.enrich(route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.99)]), probability: 1,
+                                        onUpdate: { _ in XCTFail("Cancelled metadata was published") })
+            XCTFail("Cancellation must propagate")
+        } catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    @MainActor
+    func testAlreadyCancelledTaskSendsNoProviderRequest() async {
+        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [200])
+        let session = RoadMetadataURLProtocol.session(for: fixture)
+        defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
+        let planner = TrafficLightPlanner(session: session)
+        let source = route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.99)])
+        let task = Task { try await planner.enrich(source, probability: 1,
+                                                   onUpdate: { _ in XCTFail("Cancelled metadata was published") }) }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Cancellation must propagate") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertTrue(fixture.requests.isEmpty)
+    }
+
+    @MainActor
+    func testCertificateFailureIsNotBypassedWithFallback() async {
+        let fixture = RoadMetadataURLProtocol.Fixture(statuses: [URLError.serverCertificateUntrusted.rawValue, 200])
+        let session = RoadMetadataURLProtocol.session(for: fixture)
+        defer { session.invalidateAndCancel(); RoadMetadataURLProtocol.remove(fixture) }
+        let planner = TrafficLightPlanner(session: session, pause: { _ in XCTFail("Certificate failures must not retry") })
+        do {
+            _ = try await planner.enrich(route([.init(latitude:37,longitude:-122),.init(latitude:37,longitude:-121.99)]), probability: 1)
+            XCTFail("Certificate failure must end the request")
+        } catch { XCTAssertTrue(error is RoadMetadataError) }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    @MainActor
     func testRateLimitCooldownAndRetryAfterAreRespected() {
         let url = URL(string: "https://overpass-api.de/api/interpreter")!
         func response(_ status: Int, _ header: String? = nil) -> HTTPURLResponse {
@@ -286,15 +403,36 @@ private final class RoadMetadataURLProtocol: URLProtocol {
     final class Fixture {
         let id = UUID().uuidString
         let statuses: [Int]
+        let responseBodies: [Int: String]
+        let responseHeaders: [Int: [String: String]]
         private let lock = NSLock()
         private var received: [URLRequest] = []
-        init(statuses: [Int]) { self.statuses = statuses }
+        private var receivedBodies: [Data] = []
+        init(statuses: [Int], responseBodies: [Int: String] = [:], responseHeaders: [Int: [String: String]] = [:]) {
+            self.statuses = statuses
+            self.responseBodies = responseBodies
+            self.responseHeaders = responseHeaders
+        }
         var requests: [URLRequest] { lock.lock(); defer { lock.unlock() }; return received }
-        func record(_ request: URLRequest) -> Int {
+        var bodies: [Data] { lock.lock(); defer { lock.unlock() }; return receivedBodies }
+        func record(_ request: URLRequest) -> (status: Int, body: String?, headers: [String: String]) {
             lock.lock(); defer { lock.unlock() }
-            let status = statuses[min(received.count, statuses.count - 1)]
+            let index = received.count
+            let status = statuses[min(index, statuses.count - 1)]
+            var body = request.httpBody ?? Data()
+            if body.isEmpty, let stream = request.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    guard count > 0 else { break }
+                    body.append(contentsOf: buffer.prefix(count))
+                }
+            }
             received.append(request)
-            return status
+            receivedBodies.append(body)
+            return (status, responseBodies[index], responseHeaders[index] ?? [:])
         }
     }
     private static let lock = NSLock()
@@ -307,25 +445,29 @@ private final class RoadMetadataURLProtocol: URLProtocol {
         return URLSession(configuration: configuration)
     }
     static func remove(_ fixture: Fixture) { lock.lock(); fixtures[fixture.id] = nil; lock.unlock() }
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "overpass-api.de" }
+    override class func canInit(with request: URLRequest) -> Bool {
+        ["overpass-api.de", "overpass.private.coffee"].contains(request.url?.host ?? "")
+    }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock()
         let fixture = Self.fixtures[request.value(forHTTPHeaderField: "X-Omega-Fixture") ?? ""]
         Self.lock.unlock()
         guard let fixture else { client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return }
-        let status = fixture.record(request)
+        let result = fixture.record(request)
+        let status = result.status
         if status < 0 {
             client?.urlProtocol(self, didFailWithError: URLError(URLError.Code(rawValue: status)))
             return
         }
-        let body = """
+        let body = result.body ?? """
         {"elements":[
           {"type":"way","id":1,"nodes":[10,11,12],"tags":{"highway":"primary","maxspeed":"35 mph"},"geometry":[{"lat":37,"lon":-122},{"lat":37,"lon":-121.995},{"lat":37,"lon":-121.99}]},
           {"type":"node","id":11,"lat":37,"lon":-121.995,"tags":{"highway":"traffic_signals"}}
         ]}
         """
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+        let headers = ["Content-Type": "application/json"].merging(result.headers) { _, value in value }
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
