@@ -1,110 +1,429 @@
 {
-  "fill" : {
-    "linear-gradient" : [
-      "extended-srgb:0.00000,0.72000,0.99000,1.00000",
-      "extended-srgb:0.03000,0.25000,0.97000,1.00000"
+  "features": [
+    "refractivity"
+  ],
+  "fill": {
+    "linear-gradient": [
+      "extended-srgb:0.00000,0.72157,0.98824,1.00000",
+      "extended-srgb:0.03137,0.25098,0.96863,1.00000"
     ]
   },
-  "groups" : [
+  "groups": [
     {
-      "layers" : [
+      "layers": [
         {
-          "fill-specializations" : [
+          "fill": {
+            "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+          },
+          "glass": true,
+          "image-name": "Navigation-arrow.svg",
+          "name": "Navigation arrow",
+          "opacity": 1,
+          "fill-specializations": [
             {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:1,1,1,1"
               }
             }
-          ],
-          "glass" : true,
-          "image-name" : "07-Navigation-Arrow.svg",
-          "name" : "Navigation arrow"
+          ]
         },
         {
-          "glass" : true,
-          "image-name" : "06-Navigation-Disc.svg",
-          "name" : "Blue navigation lens"
+          "fill": {
+            "solid": "extended-srgb:0.08627,0.46667,1.00000,1.00000"
+          },
+          "glass": true,
+          "image-name": "Navigation-lens.svg",
+          "name": "Navigation lens",
+          "opacity": 1
         },
         {
-          "glass" : true,
-          "image-name" : "05-Navigation-Rim.svg",
-          "name" : "Map medallion rim"
+          "fill": {
+            "solid": "extended-srgb:1.00000,0.62353,0.80000,1.00000"
+          },
+          "glass": true,
+          "image-name": "Pink-rim-accent.svg",
+          "name": "Pink rim accent",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.63529,0.91373,0.57647,1.00000"
+          },
+          "glass": true,
+          "image-name": "Green-rim-accent.svg",
+          "name": "Green rim accent",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:1.00000,0.83137,0.31765,1.00000"
+          },
+          "glass": true,
+          "image-name": "Gold-rim-accent.svg",
+          "name": "Gold rim accent",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+          },
+          "glass": true,
+          "image-name": "Navigation-rim.svg",
+          "name": "Navigation rim",
+          "opacity": 1
         }
       ],
-      "name" : "Navigation glass",
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.35
+      "name": "Navigation glass",
+      "refractivity": {
+        "depth": 0.15,
+        "enabled": true,
+        "strength": 0.35
       },
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.1
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.12
       }
     },
     {
-      "layers" : [
+      "layers": [
         {
-          "glass" : true,
-          "image-name" : "04-Curled-Edge.svg",
-          "name" : "Curled paper edge"
-        },
-        {
-          "glass" : true,
-          "image-name" : "03-Map.svg",
-          "name" : "Map surface"
-        },
-        {
-          "glass" : false,
-          "image-name" : "03a-Peel-Shadow.svg",
-          "name" : "Fold separation shadow"
+          "fill": {
+            "solid": "extended-srgb:0.91765,0.94902,1.00000,1.00000"
+          },
+          "glass": true,
+          "image-name": "Peeling-glass-sheet.svg",
+          "name": "Peeling glass sheet",
+          "opacity": 1
         }
       ],
-      "name" : "Peeled Maps surface",
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
+      "name": "Peeling glass",
+      "refractivity": {
+        "depth": 0.15,
+        "enabled": true,
+        "strength": 0.35
       },
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.1
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.25
       }
     },
     {
-      "layers" : [
+      "layers": [
         {
-          "fill-specializations" : [
-            {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "extended-srgb:1.00000,1.00000,1.00000,1.00000"
-              }
-            }
-          ],
-          "glass" : false,
-          "image-name" : "02-Omega.svg",
-          "name" : "Symmetric Omega outline"
+          "fill": {
+            "solid": "extended-srgb:0.96078,1.00000,0.90980,1.00000"
+          },
+          "glass": true,
+          "image-name": "Outer-road.svg",
+          "name": "Outer road",
+          "opacity": 1
         },
         {
-          "glass" : false,
-          "image-name" : "01-Construction.svg",
-          "name" : "Centered construction grid",
-          "opacity" : 0.42
+          "fill": {
+            "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+          },
+          "glass": true,
+          "image-name": "Road-centerline.svg",
+          "name": "Road centerline",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.83922,0.96078,0.73725,1.00000"
+          },
+          "glass": true,
+          "image-name": "Curving-road.svg",
+          "name": "Curving road",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:1.00000,0.83922,0.25882,1.00000"
+          },
+          "glass": true,
+          "image-name": "Diagonal-highway.svg",
+          "name": "Diagonal highway",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.96078,0.46275,0.69804,1.00000"
+          },
+          "glass": true,
+          "image-name": "Neighborhood.svg",
+          "name": "Neighborhood",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.40392,0.84314,0.38039,1.00000"
+          },
+          "glass": true,
+          "image-name": "East-park.svg",
+          "name": "East park",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.14118,0.65098,0.98824,1.00000"
+          },
+          "glass": true,
+          "image-name": "Waterway.svg",
+          "name": "Waterway",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.40392,0.84314,0.38039,1.00000"
+          },
+          "glass": true,
+          "image-name": "West-park.svg",
+          "name": "West park",
+          "opacity": 1
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.96078,0.96863,0.95294,1.00000"
+          },
+          "glass": true,
+          "image-name": "Map-foundation.svg",
+          "name": "Map foundation",
+          "opacity": 1
         }
       ],
-      "name" : "Omega schematic",
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0
+      "name": "Individual map elements",
+      "refractivity": {
+        "depth": 0.15,
+        "enabled": true,
+        "strength": 0.35
       },
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.1
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.08
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.18
+      }
+    },
+    {
+      "layers": [
+        {
+          "fill": {
+            "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+          },
+          "glass": true,
+          "image-name": "Omega-outline.svg",
+          "name": "Omega outline",
+          "opacity": 1,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:1,1,1,1"
+              }
+            }
+          ]
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-vertical-128.svg",
+          "name": "Grid vertical 128",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-horizontal-128.svg",
+          "name": "Grid horizontal 128",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-vertical-256.svg",
+          "name": "Grid vertical 256",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-horizontal-256.svg",
+          "name": "Grid horizontal 256",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-vertical-384.svg",
+          "name": "Grid vertical 384",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-horizontal-384.svg",
+          "name": "Grid horizontal 384",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-vertical-512.svg",
+          "name": "Grid vertical 512",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-horizontal-512.svg",
+          "name": "Grid horizontal 512",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-vertical-640.svg",
+          "name": "Grid vertical 640",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-horizontal-640.svg",
+          "name": "Grid horizontal 640",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-vertical-768.svg",
+          "name": "Grid vertical 768",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-horizontal-768.svg",
+          "name": "Grid horizontal 768",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-vertical-896.svg",
+          "name": "Grid vertical 896",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.84314,0.96078,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Grid-horizontal-896.svg",
+          "name": "Grid horizontal 896",
+          "opacity": 0.25
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Construction-circle-240.svg",
+          "name": "Construction circle 240",
+          "opacity": 0.4
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Construction-circle-368.svg",
+          "name": "Construction circle 368",
+          "opacity": 0.4
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Ascending-diagonal.svg",
+          "name": "Ascending diagonal",
+          "opacity": 0.3
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Descending-diagonal.svg",
+          "name": "Descending diagonal",
+          "opacity": 0.3
+        },
+        {
+          "fill": {
+            "solid": "extended-srgb:0.89412,0.98824,1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "Construction-frame.svg",
+          "name": "Construction frame",
+          "opacity": 0.4
+        }
+      ],
+      "name": "Omega and individual construction guides",
+      "refractivity": {
+        "depth": 0.15,
+        "enabled": false,
+        "strength": 0.35
+      },
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.1
       }
     }
   ],
-  "supported-platforms" : {
-    "squares" : [
+  "supported-platforms": {
+    "squares": [
       "iOS"
     ]
   }

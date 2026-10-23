@@ -1,9 +1,9 @@
-# Layered Maps peel / Omega schematic
+# Individual vector Maps peel / Omega schematic
 
-Version 3.2.3 (build 5). Reconstructed from the supplied reference in `../omega-locsim-icon-source.jpg` as editable SVG geometry, assembled and refined in Apple Icon Composer. The active document is `../../StikDebug/OmegaLocSimPeel.icon`.
+Version 3.2.4 (build 6). Active Icon Composer document: `../../StikDebug/OmegaLocSimPeel.icon`.
 
-Eight layers in three groups separate the navigation arrow, blue lens, rim, map surface, curled edge, fold shadow, symmetric Omega outline, and centered construction grid. The blueprint is an Apple-style icon construction diagram; the Omega and grid share the x=512 centerline. The background fills the canvas and iOS supplies the rounded mask. There is no white outer border.
+36 individually editable SVG geometry layers in four groups: six navigation elements, one peeling sheet, nine map elements, and an Omega outline with 19 separate construction guides. No raster assets, embedded images, SVG gradients, filters, opacity, or painted shadows are in the active icon source. Native Composer fills, translucency, refraction, and shadows supply the appearance. The 19 diagram guides retain native opacity with glass disabled to avoid heavy beveled edges; the other 17 elements use glass.
 
-Native glass is enabled on the navigation and map/peel surfaces. The schematic stays crisp, with explicit white dark-appearance fills for the Omega and arrow. Apple's renderer supplies tinted treatment. Default, Dark, and TintedDark exports were reviewed. All layers are SVG; the prior raster remains preserved but is not referenced by the active document.
+Default, Dark, ClearLight, ClearDark, and TintedDark were rendered with Apple's ictool. Default and clear-dark were also checked at 60 pixels. The Composer UI opened and saved all 36 layers in four groups without warnings. The Home Screen appearance on a physical phone remains unverified for this update; the phone was left disconnected.
 
-`previous-flattened.icon` preserves the prior 3.2.2 artwork. Both Xcode build configurations continue selecting `OmegaLocSimPeel`. Settings branding uses 80/160/240-pixel native exports. No location-simulation code changed.
+The supplied reference remains `../omega-locsim-icon-source.jpg`. The prior raster composition remains in `previous-flattened.icon`, outside the active document. Git history preserves the eight-layer 3.2.3 revision. Settings uses generated 80/160/240-pixel branding exports; Xcode generates compatibility rasters from the vector source. These outputs are not source artwork layers.

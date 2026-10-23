@@ -1,6 +1,6 @@
-# Omega LocSim 3.2.3 — features and controls
+# Omega LocSim 3.2.4 — features and controls
 
-Reviewed October 23, 2026 for 3.2.3 build 5. This artwork-only update uses the supplied Maps-peeling-to-Omega-blueprint composition in the app icon and Settings branding. Physical checks below belong to the earlier builds, not 3.2.3. Prior 3.2.1 results and the 3.2.0 build 2 baseline are listed separately below. This inventory describes the current control set; detailed evidence is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+Reviewed October 23, 2026 for 3.2.4 build 6. This artwork-only update uses the supplied Maps-peeling-to-Omega-blueprint composition in the app icon and Settings branding. Physical checks below belong to the earlier builds, not 3.2.4. Prior 3.2.1 results and the 3.2.0 build 2 baseline are listed separately below. This inventory describes the current control set; detailed evidence is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Browse, search, and map
 
