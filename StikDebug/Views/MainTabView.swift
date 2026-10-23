@@ -214,60 +214,24 @@ struct MainTabView: View {
             return
         }
 
-        LocationSimulationCommandQueue.shared.async {
-            let code = simulate_location(
-                DeviceConnectionContext.targetIPAddress,
-                coordinate.latitude,
-                coordinate.longitude,
-                pairingFile.path
-            )
-
-            DispatchQueue.main.async {
-                if code == 0 {
-                    LocationSimulationSession.shared.clearRoute()
-                    LocationSimulationSession.shared.startResending(
-                        at: CLLocationCoordinate2D(
-                            latitude: coordinate.latitude,
-                            longitude: coordinate.longitude
-                        )
-                    ) {
-                        LocationSimulationCommandQueue.shared.async {
-                            _ = simulate_location(
-                                DeviceConnectionContext.targetIPAddress,
-                                coordinate.latitude,
-                                coordinate.longitude,
-                                pairingFile.path
-                            )
-                        }
-                    }
-                    LogManager.shared.addInfoLog(
-                        String(format: "Simulated location from URL: %.6f, %.6f", coordinate.latitude, coordinate.longitude)
-                    )
-                } else {
-                    showAlert(
-                        title: "Location Simulation Failed",
-                        message: "Could not simulate location from URL (error \(code)). Make sure the device is connected and the DDI is mounted.",
-                        showOk: true
-                    )
-                }
+        Task {
+            let session = LocationSimulationSession.shared
+            let didSet = await session.setStationary(CLLocationCoordinate2D(latitude: coordinate.latitude, longitude: coordinate.longitude))
+            if didSet { LogManager.shared.addInfoLog("Simulated location from URL") }
+            else {
+                showAlert(title: "Location Simulation Failed", message: session.playbackError ?? "The location request was superseded.", showOk: true)
             }
         }
     }
 
     private func clearSimulatedLocation() {
-        LocationSimulationCommandQueue.shared.async {
-            let code = clear_simulated_location()
-            DispatchQueue.main.async {
-                if code == 0 {
-                    LocationSimulationSession.shared.stop()
-                    LogManager.shared.addInfoLog("Cleared simulated location from URL")
-                } else {
-                    showAlert(
-                        title: "Clear Location Failed",
-                        message: "Could not clear simulated location from URL (error \(code)).",
-                        showOk: true
-                    )
-                }
+        Task {
+            let session = LocationSimulationSession.shared
+            await session.restoreRealLocation()
+            if !session.isActive, session.playbackError == nil {
+                LogManager.shared.addInfoLog("Cleared simulated location from URL")
+            } else {
+                showAlert(title: "Clear Location Failed", message: session.playbackError ?? "The restore request was superseded.", showOk: true)
             }
         }
     }

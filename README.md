@@ -1,150 +1,36 @@
-<div align="center">
-   <img width="217" height="217" src="/assets/StikDebug.png" alt="Logo">
-</div>
+# Omega LocSim
 
-<div align="center">
-  <h1><b>StikDebug</b></h1>
-  <p><i>An on-device debugger/JIT enabler for iOS versions 17.4+ powered by <a href="https://github.com/jkcoxson/idevice">idevice</a>.</i></p>
-</div>
+Omega LocSim is a focused iPhone location simulator derived from [StikDebug](https://github.com/StikDebug/StikDebug). It uses SwiftUI and public MapKit APIs for a Maps-style search, place card, route preview, and active route flow.
 
-<h3 align="center">
-  <a href="https://discord.gg/ZnNcrRT3M8"><img src="https://img.shields.io/badge/Discord-join%20us-7289DA?logo=discord&logoColor=white&style=for-the-badge&labelColor=23272A" /></a>&nbsp;
-  <a href="https://github.com/StikDebug/StikDebug/blob/main/LICENSE"><img src="https://img.shields.io/github/license/StikDebug/StikDebug?label=License&color=5865F2&style=for-the-badge&labelColor=23272A" /></a>&nbsp;
-  <a href="https://github.com/StikDebug/StikDebug"><img src="https://img.shields.io/github/stars/StikDebug/StikDebug?label=Stars&color=FEE75C&style=for-the-badge&labelColor=23272A" /></a>&nbsp;
-  <a href="https://github.com/StikDebug/StikDebug/releases"><img src="https://img.shields.io/github/v/release/StikDebug/StikDebug?label=Latest&color=00BFFF&style=for-the-badge&labelColor=23272A" /></a>&nbsp;
-   <a href="https://deepwiki.com/StikDebug/StikDebug"><img src="https://img.shields.io/badge/Ask-DeepWiki-grey?style=for-the-badge&labelColor=23272A&color=007ec6" /></a>
-   <br />
-</h3>
+Native Liquid Glass is used for floating controls, search, the main sheet, route actions and setup on iOS 26 and later.
 
-## Features
-- **JIT:** Enable Just-In-Time compilation for sideloaded apps that have the `get-task-allow` entitlement.
-- **App Launching:** Launch every app installed on your device.
-- **Console:** Live app and system logs.
-- **Scripts:** Manage automation scripts (mainly used for iOS 26 JIT). 
-- **App Expiry:** See when apps will expire and install/remove profiles.
-- **Device Info:** View detailed device metadata.
-- **Processes:** Inspect running apps/processes and terminate them.
-- **Location Simulator:** Simulate the GPS location of your device.
+## Current scope
 
-## Download
-> [!NOTE]
-> **Notice:** StikDebug is no longer available on the App Store. Please use the official download methods below.
+- Set a stationary spoofed location from a selected place.
+- Prepare driving routes with ordered stops and one adjustable speed.
+- Start with Go, pause or resume, edit the remaining stops while paused, and end at the last simulated position.
+- Restore Real Location separately, with any connection failure reported.
+- Retain StikDebug pairing, device communication, connection setup, and background support.
 
-<h3 align="center">
-<a href="https://altdirect.app/?url=https://stikdebug.xyz/index.json" target="_blank"><img src="https://altdirect.app/assets/png/AltSource_Blue.png" alt="Add AltSource" width="200"></a>
-&nbsp;
-<a href="https://github.com/StikDebug/StikDebug/releases/latest/download/StikDebug-3.1.15.ipa" target="_blank"><img src="https://altdirect.app/assets/png/Download_Blue.png" alt="Download .ipa" width="200"></a>
-</h3>
+Version 3.1.15 was signed through Xcode Personal Team and tested on an iPhone 15 Pro Max running iOS 27.0. After refreshing pairing, the app reported successful stationary Set Location, road-route Go, Pause, Edit Route/Apply & Resume with the remaining stop unchanged, End Route holding, and Restore Real Location clearing the simulated state without an error. All 22 prior isolated engine checks pass.
 
-## Compatibility
+Independent location verification in another app, live speed changes, actual multi-stop edits, arrival, background/lock/disconnection endurance, the second physical phone, and iOS 27.0.1 remain untested. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the exact smoke-test observations and remaining checks.
 
-| iOS Version              | Status               | Notes                                                                 |
-|--------------------------|----------------------|-----------------------------------------------------------------------|
-| 1.0 – 17.3.X             | Not supported        | Uses Different Connection Protocols                                   |
-| 17.4 – 18.x              | Fully supported      | Stable                                                                |
-| 26.0+              | Supported            | Limited App Availability (Developers need to update their apps to work.) |
+## Building and testing
 
-## How to Enable JIT
+1. Complete Xcode's first-run setup and open `StikDebug.xcodeproj`.
+2. Select the `StikDebug` target and configure the available signing identity.
+3. Select a physical iPhone and build. The bundled device bridge contains iOS arm64 objects; the full app is built for a physical iPhone.
+4. Follow the existing [pairing file guide](https://github.com/StikDebug/StikDebug-Guide/blob/main/pairing_file.md) and connection setup as needed for the paired phone.
 
-StikDebug enables **JIT** for sideloaded apps on iOS 17.4+ without needing a computer after the initial pairing setup.
+The app uses the separate `com.omega.locsim` bundle identifier and `group.com.omega.locsim` app group so it can coexist with StikDebug. It does not register StikDebug’s URL schemes. Internal Xcode project/module names and protocol identifiers remain compatible. The installed display name is Omega LocSim, and its identifier is verified as `com.omega.locsim`. Physical smoke checks establish app-reported success and visible state/progress changes; GPS behavior in another app was not independently checked.
 
-### Requirements
-- StikDebug installed (via AltSource, direct .ipa, or self-built)
-- A valid **pairing file** (.plist / .mobiledevicepairing) for your device
-- SideStore / AltStore / similar sideload tool (for app refreshing)
-- A loopback VPN such as [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044)
+Run `scripts/test-engine.sh` for the isolated engine checks. The supplied Omega LocSim icon is preserved in `branding/` and selected by both build configurations.
 
-### Steps
-1. **Obtain a pairing file**  
-   - Detailed guide: [Pairing File Instructions](https://github.com/StikDebug/StikDebug-Guide/blob/main/pairing_file.md) (or ask in Discord).
+## Source delivery
 
-2. **Set up VPN**  
-   - Launch LocalDevVPN and enable the VPN.
+Source repository: [GitHub fork](https://github.com/Omega-Omega-Omega/Omega-LocSim). This repository contains the Omega LocSim implementation; no GitHub Release is published.
 
-4. **Enable JIT for an app**  
-   - Launch StikDebug and tap the `Enable JIT` button.
-   - Select your sideloaded app from the list in StikDebug.  
+## Attribution and license
 
-**Troubleshooting**  
-- "Connection dropped" or loopback errors → Check iOS version compatibility / beta warnings.  
-- Heartbeat errors → Ensure that the VPN is on and that you are connected to Wi-Fi. It may be a pairing file issue.
-- Pairing file issues → Replace file with device unlocked & trusted.  
-- Still stuck? Join the [Discord](https://discord.gg/ZnNcrRT3M8) with logs/screenshots.
-
-<!-- 
-## Screenshots
-
-<div align="center">
-  <img src="screenshots/pairing-import.png" width="320" alt="Pairing file import screen">
-  <img src="screenshots/app-list.png" width="320" alt="Sideloaded apps list">
-  <img src="screenshots/jit-enabled.png" width="320" alt="JIT successfully enabled">
-  <img src="screenshots/processes.png" width="320" alt="Process management tab">
-</div>
-
-(Add images to a /screenshots/ folder in the repo and uncomment when ready.)
--->
-
-## Building from Source
-
-> [!IMPORTANT]
-> **Integrating StikDebug or StikJIT into your own project?**  
-> See the [StikJIT Integration Guide](https://github.com/StikDebug/StikJIT/blob/main/INTEGRATION.md) for integration instructions.
-
-### Requirements
-- macOS (latest recommended)
-- Xcode 16+ (Xcode 26+ preferred for iOS 26+ support)
-- iOS device on iOS 17.4+ (for testing)
-- Git
-- Basic Xcode/Swift knowledge
-
-### Steps
-1. **Clone the repo**
-   ```bash
-   git clone https://github.com/StikDebug/StikDebug.git
-   cd StikDebug
-   ```
-
-2. **Open in Xcode**
-   - Launch Xcode
-   - Open `StikDebug.xcodeproj`
-
-3. **Configure signing**
-   - Select the **StikDebug** target
-   - Go to **Signing & Capabilities**
-   - Sign in with your Apple ID (free or paid developer account)
-   - Set a unique **Bundle Identifier** (e.g., `com.yourname.StikDebug`)
-
-4. **Build & install**
-   - Select your connected device
-   - Press **Cmd + R** (or Product → Run)
-   - Trust the certificate on device: Settings → General → VPN & Device Management
-
-After install, follow the JIT setup steps above (pairing import, etc.).
-
-## Contributing
-
-Thank you for your interest in contributing to this project. Contributions of all kinds are welcome.
-
-### Reporting Bugs
-If you discover a bug, please open an issue and include:
-- A clear and descriptive title
-- Steps to reproduce the issue
-- Expected behavior vs. actual behavior
-- Relevant logs, screenshots, or environment details (iOS version, device model, etc.)
-
-### Suggesting Features
-To propose a new feature, open a feature request issue and provide:
-- A clear description of the feature
-- The problem it solves or the use case it addresses
-- Any relevant examples or implementation ideas
-
-### Code Contributions (Best Practices)
-- Follow normal Swift and SwiftUI style.
-- Write clear and easy-to-understand code.
-- Keep your changes consistent with how the project is already set up.
-- Make sure everything builds and works without errors.
-
-We appreciate your time and effort in helping improve this project.
-
-## License
-StikDebug is licensed under **AGPL-3.0**. See [`LICENSE`](LICENSE) for details.
+This modified project starts from StikDebug commit `17b1e1d90d602a228de663a10efa987a9f9e547b`. Its device communication is powered by [idevice](https://github.com/jkcoxson/idevice). Original author notices and the [AGPL-3.0 license](LICENSE) are preserved. The original project documentation is retained in [README.upstream.md](README.upstream.md); its upstream download links refer to StikDebug, not to an Omega LocSim release.

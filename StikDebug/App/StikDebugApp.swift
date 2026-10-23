@@ -18,7 +18,7 @@ struct StikDebugApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
+            LocationSimulationView()
                 .task {
                     await downloadMissingDeveloperDiskImageFiles()
                 }

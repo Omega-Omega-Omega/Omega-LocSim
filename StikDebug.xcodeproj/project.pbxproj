@@ -440,7 +440,7 @@
 		DC6F1D5D2D94EADF0071B2B6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = StikDebug;
+				ASSETCATALOG_COMPILER_APPICON_NAME = OmegaLocSim;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
@@ -458,11 +458,12 @@
 					"$(PROJECT_DIR)/StikDebug/idevice",
 				);
 				INFOPLIST_FILE = StikDebug/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Omega LocSim";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "StikDebug needs access to devices on your local network so it can connect to the targets you add to the Device Library.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "StikDebug uses location to stay running in the background and maintain your JIT connection.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "StikDebug uses location to stay running in the background and maintain your JIT connection.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Omega LocSim uses the local network to connect to your paired device for location simulation.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Omega LocSim uses your location to show your position on the map and support active simulation in the background.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Omega LocSim uses your location to show your position on the map and support active simulation in the background.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -483,7 +484,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 3.1.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.stik.stikdebug;
+				PRODUCT_BUNDLE_IDENTIFIER = com.omega.locsim;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -502,7 +503,7 @@
 		DC6F1D5E2D94EADF0071B2B6 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = StikDebug;
+				ASSETCATALOG_COMPILER_APPICON_NAME = OmegaLocSim;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
@@ -520,11 +521,12 @@
 					"$(PROJECT_DIR)/StikDebug/idevice",
 				);
 				INFOPLIST_FILE = StikDebug/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Omega LocSim";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "StikDebug needs access to devices on your local network so it can connect to the targets you add to the Device Library.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "StikDebug uses location to stay running in the background and maintain your JIT connection.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "StikDebug uses location to stay running in the background and maintain your JIT connection.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Omega LocSim uses the local network to connect to your paired device for location simulation.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Omega LocSim uses your location to show your position on the map and support active simulation in the background.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Omega LocSim uses your location to show your position on the map and support active simulation in the background.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -545,7 +547,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 3.1.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.stik.stikdebug;
+				PRODUCT_BUNDLE_IDENTIFIER = com.omega.locsim;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -566,7 +568,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = SZ977XLF24;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -579,7 +581,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.stik.stikdebug.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.omega.locsim.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -598,7 +600,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = SZ977XLF24;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -611,7 +613,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.stik.stikdebug.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.omega.locsim.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -629,12 +631,12 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = SZ977XLF24;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.stik.stikdebug.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.omega.locsim.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -651,12 +653,12 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = SZ977XLF24;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.stik.stikdebug.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.omega.locsim.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";

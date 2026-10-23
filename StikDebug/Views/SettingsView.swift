@@ -14,6 +14,9 @@ private enum SettingsLinks {
 }
 
 struct SettingsView: View {
+    var onClose: (() -> Void)? = nil
+
+    init(onClose: (() -> Void)? = nil) { self.onClose = onClose }
     @AppStorage(UserDefaults.Keys.txmOverride) private var overrideTXMDetection = false
     @AppStorage(UserDefaults.Keys.confirmExternalJITRequests) private var confirmExternalJITRequests = true
     @AppStorage("keepAliveAudio") private var keepAliveAudio = true
@@ -49,34 +52,24 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 12) {
-                            Image("StikDebug")
-                                .resizable().aspectRatio(contentMode: .fit)
-                                .frame(width: 80, height: 80)
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            Text("StikDebug").font(.title2.weight(.semibold))
-                        }
-                        Spacer()
-                    }
-                    .listRowBackground(Color.clear)
-                    .padding(.vertical, 8)
+                    brandHeader
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        .listRowSeparator(.hidden)
                 }
 
                 Section {
-                    Link(destination: SettingsLinks.githubStars) {
-                        Label("Star on GitHub", systemImage: "star")
-                    }
+                    sourceLink
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
                 }
 
                 Section("Pairing File") {
-                    Button {
-                        isShowingPairingFilePicker = true
-                    } label: {
-                        Label("Import Pairing File", systemImage: "doc.badge.plus")
-                    }
-                    .disabled(isImportingFile)
+                    pairingImportButton
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
 
                     if isImportingFile {
                         HStack(spacing: 10) {
@@ -100,7 +93,7 @@ struct SettingsView: View {
                     Toggle(isOn: $keepAliveAudio) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Silent Audio")
-                            Text("Plays inaudible audio so iOS keeps the app running.")
+                            Text("Uses silent audio to support background simulation.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -121,34 +114,6 @@ struct SettingsView: View {
 
                 } header: {
                     Text("Background Keep-Alive")
-                }
-
-                Section("Behavior") {
-                    Toggle(isOn: $confirmExternalJITRequests) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Confirm JIT Links")
-                            Text("Ask before external links enable JIT or run scripts.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Toggle(isOn: $overrideTXMDetection) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Always Run Scripts")
-                            Text("Treats device as TXM-capable to bypass hardware checks.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("Debugging") {
-                    Toggle(isOn: $mallocDebug) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Malloc Debugging")
-                            Text("Attaches processes with MallocGuardEdges and MallocScribble to detect memory corruption.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
                 }
 
                 Section("Advanced") {
@@ -210,6 +175,12 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .toolbar {
+                if let onClose {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done", action: onClose) }
+                }
+            }
+            .scrollContentBackground(.hidden)
             .background(KeyboardTapDismissal())
             .scrollDismissesKeyboard(.interactively)
         }
@@ -271,6 +242,59 @@ struct SettingsView: View {
         } message: {
             Text("Existing DDI files will be removed before downloading fresh copies.")
         }
+    }
+
+    private var brandHeader: some View {
+        VStack(spacing: 12) {
+            Image("OmegaLocSimBrand")
+                .resizable().aspectRatio(contentMode: .fit)
+                .frame(width: 80, height: 80)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .accessibilityHidden(true)
+            Text("Omega LocSim")
+                .font(.title2.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            Text("Built on StikDebug").font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .padding(.horizontal, 20)
+        .modifier(SettingsGlassSurface())
+    }
+
+    @ViewBuilder
+    private var sourceLink: some View {
+        if #available(iOS 26.0, *) {
+            sourceLinkContent.buttonStyle(.glass)
+        } else {
+            sourceLinkContent.buttonStyle(.bordered)
+        }
+    }
+
+    private var sourceLinkContent: some View {
+        Link(destination: SettingsLinks.githubStars) {
+            Label("StikDebug Source", systemImage: "chevron.left.forwardslash.chevron.right")
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .controlSize(.large)
+    }
+
+    @ViewBuilder
+    private var pairingImportButton: some View {
+        if #available(iOS 26.0, *) {
+            pairingImportButtonContent.buttonStyle(.glassProminent)
+        } else {
+            pairingImportButtonContent.buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var pairingImportButtonContent: some View {
+        Button { isShowingPairingFilePicker = true } label: {
+            Label("Import Pairing File", systemImage: "doc.badge.plus")
+                .frame(maxWidth: .infinity, minHeight: 48)
+        }
+        .controlSize(.large)
+        .disabled(isImportingFile)
     }
 
     private func applyConnectionSettings() {
@@ -371,6 +395,22 @@ struct SettingsView: View {
                     ddiResultMessage = nil
                 }
             }
+        }
+    }
+}
+
+private struct SettingsGlassSurface: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
+        if reduceTransparency {
+            content.background(Color(uiColor: .secondarySystemGroupedBackground), in: shape)
+        } else if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: shape)
+        } else {
+            content.background(.regularMaterial, in: shape)
         }
     }
 }

@@ -98,10 +98,10 @@ struct HomeView: View {
                 enableJITForSelectedApp(bundleID: app.bundleID, name: app.name)
             }
         } message: { _ in
-            Text("StikDebug isn't meant to enable JIT for LiveContainer manually. Select StikDebug in LiveContainer settings, enable \"Run with JIT\" for your app, then open your app normally. It will automatically jump back here.")
+            Text("Omega LocSim isn't meant to enable JIT for LiveContainer manually. Select Omega LocSim in LiveContainer settings, enable \"Run with JIT\" for your app, then open your app normally. It will automatically jump back here.")
         }
         .alert(
-            "Enable JIT for StikDebug?",
+            "Enable JIT for Omega LocSim?",
             isPresented: Binding(
                 get: { pendingStikDebugApp != nil },
                 set: { isPresented in
@@ -120,7 +120,7 @@ struct HomeView: View {
                 enableJITForSelectedApp(bundleID: app.bundleID, name: app.name)
             }
         } message: { _ in
-            Text("StikDebug isn't meant to attach to itself. Enabling JIT for StikDebug serves no purpose. Select the app you want to enable JIT for instead.")
+            Text("Omega LocSim isn't meant to attach to itself. Enabling JIT for Omega LocSim serves no purpose. Select the app you want to enable JIT for instead.")
         }
         .fileImporter(
             isPresented: $isShowingPairingFilePicker,
@@ -361,7 +361,7 @@ struct HomeView: View {
                     }
                     showAlert(
                         title: "Failed to Enable JIT".localized,
-                        message: "The device connection or Developer Disk Image wasn't ready in time. Open StikDebug directly, wait for it to finish connecting, then try again.".localized,
+                        message: "The device connection or Developer Disk Image wasn't ready in time. Open Omega LocSim directly, wait for it to finish connecting, then try again.".localized,
                         showOk: true
                     )
                 }
@@ -388,7 +388,7 @@ struct HomeView: View {
                     }
 
                     if !success {
-                        let failureMessage = detail ?? "StikDebug could not launch or attach to the selected app. Check that the VPN is enabled, the pairing file is current, and the app is still installed.".localized
+                        let failureMessage = detail ?? "Omega LocSim could not launch or attach to the selected app. Check that the VPN is enabled, the pairing file is current, and the app is still installed.".localized
                         showAlert(title: "Failed to Enable JIT".localized, message: failureMessage, showOk: true)
                     }
                 }

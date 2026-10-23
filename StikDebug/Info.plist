@@ -2,22 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLName</key>
-			<string>com.stik.stikdebug.enableJIT</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>stikdebug</string>
-				<string>stikjit</string>
-			</array>
-		</dict>
-	</array>
-		<key>NSLocalNetworkUsageDescription</key>
-	<string>StikDebug discovers this iPhone's Remote Pairing service to enable JIT.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_remotepairing._tcp</string>
@@ -40,7 +24,7 @@
 				<string>com.apple.package</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>StikDebug Mini Tool</string>
+			<string>Omega LocSim Tool</string>
 			<key>UTTypeIconFiles</key>
 			<array/>
 			<key>UTTypeIdentifier</key>
