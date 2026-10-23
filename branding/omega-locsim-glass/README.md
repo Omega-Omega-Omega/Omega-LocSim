@@ -1,5 +1,7 @@
 # Omega LocSim Liquid Glass icon
 
+Historical artwork, used through 3.2.1. Version 3.2.2 selects `OmegaLocSimPeel` instead; this editable vector source is preserved.
+
 Original Ω and north-pointing navigation geometry, designed from scratch for Omega LocSim. The blue/cyan background reaches the system icon edge; the artwork contains no white border or baked icon mask.
 
 ## Editable source

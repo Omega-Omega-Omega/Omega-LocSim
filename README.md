@@ -2,6 +2,10 @@
 
 Omega LocSim is an iPhone location simulator built from [StikDebug](https://github.com/StikDebug/StikDebug), with a native MapKit interface and Liquid Glass controls.
 
+## Version 3.2.2
+
+Version 3.2.2 (build 4) restores the supplied icon concept: a colorful Maps-inspired surface peeling back to reveal an Omega blueprint. The artwork fills the system mask without a white outer border. Settings branding uses the same artwork. This is an artwork-only update; phone behavior was last checked on 3.2.1. The phone remains disconnected.
+
 ## Version 3.2.1
 
 Version 3.2.1 (build 3) adds an approved Overpass fallback for optional mapped road details: the app initially tries `overpass-api.de`, then may send the same route query to `overpass.private.coffee`. A working backup can be reused for later requests; if it fails, the primary can be tried again. The existing Mapped Road Details opt-in covers both named services; it remains off by default. See the [Private.coffee service and privacy policy](https://overpass.private.coffee/).
@@ -37,7 +41,7 @@ Physical manual checks also confirmed 48 km/h and 1.3 km converting to 30 mph an
 
 The bundled bridge targets physical iOS arm64; simulator UI validation uses a separate harness with fake device transport. Omega LocSim uses `com.omega.locsim` and `group.com.omega.locsim`, so it can coexist with StikDebug. Its display name is Omega LocSim; internal project/module names retain upstream compatibility.
 
-The new original Ω/navigation icon is editable in `StikDebug/OmegaLocSimGlass.icon`. It was assembled with Apple's Icon Composer and uses native glass, dark, and tinted appearances. Original vectors and workflow notes are in [branding/omega-locsim-glass](branding/omega-locsim-glass/README.md). Previous artwork and upstream assets remain preserved.
+The active icon is `StikDebug/OmegaLocSimPeel.icon`, using the supplied peeled Maps/Omega blueprint composition adapted into full-bleed artwork. Apple's icon renderer supplies its system mask and tinted appearance. See [artwork and generation notes](branding/omega-locsim-peel/README.md). The earlier vector/glass icon and original reference remain preserved.
 
 ## Source and attribution
 

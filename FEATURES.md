@@ -1,6 +1,6 @@
-# Omega LocSim 3.2.1 — features and controls
+# Omega LocSim 3.2.2 — features and controls
 
-Reviewed October 23, 2026 for 3.2.1 build 3. Current-version results and the 3.2.0 build 2 baseline are listed separately below. This inventory describes the current control set; detailed evidence is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+Reviewed October 23, 2026 for 3.2.2 build 4. This artwork-only update uses the supplied Maps-peeling-to-Omega-blueprint composition in the app icon and Settings branding. Physical checks below belong to the earlier builds, not 3.2.2. Prior 3.2.1 results and the 3.2.0 build 2 baseline are listed separately below. This inventory describes the current control set; detailed evidence is in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Browse, search, and map
 
@@ -96,7 +96,7 @@ The top banner shows **Simulating**, **Paused**, **Leaving later**, **Staying at
 
 ## Appearance, limits, and validation
 
-Native Liquid Glass is used on iOS 26+ with native material/bordered fallbacks earlier. Light/dark, semantic text/colors, accessibility labels, scrolling layouts, and opaque Reduce Transparency surfaces are implemented. The original icon uses Apple's native default/dark/tinted rendering.
+Native Liquid Glass is used on iOS 26+ with native material/bordered fallbacks earlier. Light/dark, semantic text/colors, accessibility labels, scrolling layouts, and opaque Reduce Transparency surfaces are implemented. The peeled Maps/Omega blueprint icon uses Apple's system mask and default/dark/tinted rendering.
 
 Not implemented: joystick, looping routes, saved route libraries, cloud place sync, coordinate export, offline road lookup/routing, timestamp replay, custom acceleration curves, walking/cycling/transit selection, alternative routes, spoken navigation, or Apple Maps account sync.
 

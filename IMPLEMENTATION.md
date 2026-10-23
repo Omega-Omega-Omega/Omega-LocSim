@@ -1,4 +1,10 @@
-# Omega LocSim 3.2.1 implementation and validation
+# Omega LocSim 3.2.2 implementation and validation
+
+## 3.2.2 artwork update
+
+Build 4 selects `OmegaLocSimPeel.icon`: the supplied Maps-peeling-to-Omega-blueprint concept, adapted with the built-in image generator to remove the outer white canvas. Its full-bleed PNG is embedded in an Icon Composer document; Settings branding uses Apple-rendered exports. Default, Dark, and TintedDark exports were visually inspected. The peeled artwork is a single raster layer, not independently animated glass components. The earlier glass/vector source is preserved. The signed Release build passed, and both IPA archives passed packaging/signature checks (`../work/omega-3.2.2-release-build.log`, `../work/omega-3.2.2-package-validation.json`). The built plist selects OmegaLocSimPeel. Runtime source is unchanged. No device was connected, installed, or tested for this update; the previous results below remain version-specific.
+
+## Earlier 3.2.1 validation
 
 This **3.2.1 build 3** update adds the user-approved fixed Overpass fallback under the existing Mapped Road Details opt-in. **83 isolated checks passed**; the signed Release build, physical installation, and launch succeeded. Inventory verified **Omega LocSim `com.omega.locsim` 3.2.1 (3)**. Signed/unsigned IPA packages were verified. Installed-release smoke confirmed public-place autocomplete, a driving preview, Go/progress/Pause at fallback speed, and successful Restore to idle. The approved mirror live probe timed out without a response, so live road data remains unverified. Completed 3.2.0 build 2 engine, foreground/background device, external GPS, and installed-release checks remain recorded separately below.
 
@@ -6,9 +12,9 @@ This **3.2.1 build 3** update adds the user-approved fixed Overpass fallback und
 
 Based on [StikDebug](https://github.com/StikDebug/StikDebug) commit `17b1e1d90d602a228de663a10efa987a9f9e547b`, with [idevice](https://github.com/jkcoxson/idevice) for device communication. `README.upstream.md`, original notices, and [AGPL-3.0](LICENSE) remain preserved.
 
-Omega LocSim uses `com.omega.locsim` and `group.com.omega.locsim`, including legacy group-storage callers. StikDebug URL registrations were removed to avoid intercepting the original app's links. Internal project/module names, protocol Bonjour declarations, preferences, and file identifiers retain compatibility. Current source version is **3.2.1, build 3**. The prior **3.2.0, build 2** release is documented in the separate baseline below.
+Omega LocSim uses `com.omega.locsim` and `group.com.omega.locsim`, including legacy group-storage callers. StikDebug URL registrations were removed to avoid intercepting the original app's links. Internal project/module names, protocol Bonjour declarations, preferences, and file identifiers retain compatibility. Current source version is **3.2.2, build 4**. The prior **3.2.0, build 2** release is documented in the separate baseline below.
 
-The owner requested a new icon from scratch. `StikDebug/OmegaLocSimGlass.icon` contains original Ω and navigation SVG layers assembled, previewed, and saved with Apple's Icon Composer. Native group glass effects and a cyan-to-cobalt background produce Default, Dark, and tintable appearances. Both build configurations select `OmegaLocSimGlass`; the synchronized target includes the document automatically. `OmegaLocSimBrand.imageset` uses resized Default/Dark renders for Settings. Original SVGs, workflow details, and Apple references are in [branding/omega-locsim-glass/README.md](branding/omega-locsim-glass/README.md).
+The previous 3.2 icon is retained as historical artwork. `StikDebug/OmegaLocSimGlass.icon` contains original Ω and navigation SVG layers assembled, previewed, and saved with Apple's Icon Composer. Native group glass effects and a cyan-to-cobalt background produce Default, Dark, and tintable appearances. Both build configurations select `OmegaLocSimGlass`; the synchronized target includes the document automatically. `OmegaLocSimBrand.imageset` uses resized Default/Dark renders for Settings. Original SVGs, workflow details, and Apple references are in [branding/omega-locsim-glass/README.md](branding/omega-locsim-glass/README.md).
 
 Isolated Xcode 27.1 `actool` compilation passed for iPhone/iPad, deployment target 17.4. Generated metadata names `OmegaLocSimGlass`; `Assets.car` contains native light/dark/tintable icon stacks and both SVGs. The generated iPhone fallback was decoded and visually checked. The prior supplied JPEG, raster icon, and upstream `StikDebug.icon` remain preserved; they are not the selected new icon.
 
