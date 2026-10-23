@@ -13,13 +13,25 @@ final class LocationSimulationSession: ObservableObject {
     @Published private(set) var playbackState = PlaybackState.idle
     @Published private(set) var playbackError: String?
     @Published private(set) var traveled = 0.0
-    @Published var speedMetersPerSecond = 13.4112
+    @Published var speedMetersPerSecond = 13.4112 {
+        didSet { refreshArrivalAdjustment() }
+    }
     @Published var useRoadSpeeds = true {
-        didSet { if managesBackground { UserDefaults.standard.set(useRoadSpeeds, forKey: "omegaUseRoadSpeeds") } }
+        didSet {
+            if managesBackground { UserDefaults.standard.set(useRoadSpeeds, forKey: "omegaUseRoadSpeeds") }
+            refreshArrivalAdjustment()
+        }
     }
     @Published private(set) var plannedRoute: PlannedRoute?
     @Published private(set) var isSendingLocation = false
     @Published private(set) var currentWait: SimulationWait?
+    @Published private(set) var arrivalAdjustment: ArrivalAdjustment?
+
+    private var adjustedSpeedMultiplier = 1.0
+    private var greenLightIDs = Set<UUID>()
+    private var currentWaitLightID: UUID?
+    private var lastTransportSeconds = 0.0
+    private let replanEditedRoute: @MainActor ([SimulationStop]) async throws -> PlannedRoute
 
     private var timingEvents: [RouteTimingEvent] = []
     private var nextTimingEvent = 0
@@ -50,6 +62,7 @@ final class LocationSimulationSession: ObservableObject {
         tickInterval = 0.5; holdInterval = 4
         monotonicNow = { ProcessInfo.processInfo.systemUptime }
         wallNow = { Date() }
+        replanEditedRoute = { try await RoutePlanner().calculate(stops: $0) }
         useRoadSpeeds = UserDefaults.standard.object(forKey: "omegaUseRoadSpeeds") as? Bool ?? true
     }
 
@@ -57,10 +70,14 @@ final class LocationSimulationSession: ObservableObject {
     init(tickInterval: Double = 0.5, holdInterval: Double = 4,
          monotonicNow: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          wallNow: @escaping @MainActor () -> Date = { Date() },
+         replanEditedRoute: @escaping @MainActor ([SimulationStop]) async throws -> PlannedRoute = {
+             try await RoutePlanner().calculate(stops: $0)
+         },
          sender: @escaping @MainActor (CLLocationCoordinate2D?) async -> Int32) {
         self.sender = sender; managesBackground = false
         self.tickInterval = tickInterval; self.holdInterval = holdInterval
         self.monotonicNow = monotonicNow; self.wallNow = wallNow
+        self.replanEditedRoute = replanEditedRoute
     }
 
     private struct Transmission {
@@ -154,6 +171,8 @@ final class LocationSimulationSession: ObservableObject {
             holdPosition(); return false
         }
         let retainedWait = preservingCurrentWait ? currentWait : nil
+        let retainedLightID = preservingCurrentWait ? currentWaitLightID : nil
+        greenLightIDs = []; currentWaitLightID = nil; lastTransportSeconds = result.seconds
         plannedRoute = route
         geometry = RouteGeometry(route.coordinates)
         roadSpeedProfile = RouteSpeedProfile(segments: route.speedSegments, length: geometry.length)
@@ -164,11 +183,94 @@ final class LocationSimulationSession: ObservableObject {
         _ = startRoute(at: first, coordinates: route.coordinates)
         playbackState = .paused
         let departureDelay = route.waitingUntilDeparture(at: wallNow())
-        if let retainedWait { beginWait(retainedWait.kind, seconds: retainedWait.remainingSeconds) }
+        if let retainedWait { currentWaitLightID = retainedLightID; beginWait(retainedWait.kind, seconds: retainedWait.remainingSeconds) }
         else if departureDelay > 0 { beginWait(.departure, seconds: departureDelay) }
+        refreshArrivalAdjustment()
         if pauseRevision == requestedPauseRevision { resumePlayback() }
         else { holdPosition() }
         return true
+    }
+
+    /// Editing does not interrupt playback. Only committing the draft drains
+    /// the active transport, then swaps in a route from its last accepted point.
+    /// A user-paused route remains paused; stale edits cannot replace a new trip.
+    @discardableResult
+    func applyEditedRoute(_ draft: PlannedRoute, replacingRouteID originalID: UUID) async -> Bool {
+        guard plannedRoute?.id == originalID, draft.stops.count > 1 else {
+            playbackError = "This route changed while you were editing. Open Edit Route again."
+            return false
+        }
+        let wasPlaying = playbackState == .playing
+        let oldLoop = playbackTask
+        let id = beginAction()
+        let requestedPauseRevision = pauseRevision
+        settlingPauseCount += 1
+        defer { settlingPauseCount -= 1 }
+        await oldLoop?.value
+        await waitForTransport()
+        guard actionID == id, plannedRoute?.id == originalID, let point = coordinate else { return false }
+        let completedIDs = Set(zip(plannedRoute!.stops.dropFirst(), plannedRoute!.stopDistances)
+            .filter { $0.1 <= traveled + 0.000_001 }.map { $0.0.id })
+        var replacement: PlannedRoute
+        if let rebased = draft.rebased(at: point, omittingStopIDs: completedIDs) {
+            replacement = rebased
+        } else {
+            let futureStops = draft.stops.dropFirst().filter { !completedIDs.contains($0.id) }
+            guard !futureStops.isEmpty else {
+                playbackError = "All remaining stops were completed while editing. Add a destination to continue."
+                holdPosition()
+                return false
+            }
+            do {
+                replacement = try await replanEditedRoute([SimulationStop(title: "Simulated Location", coordinate: point)] + futureStops)
+                replacement.departureDate = draft.departureDate
+                replacement.arrivalDate = draft.arrivalDate
+            } catch {
+                guard actionID == id else { return false }
+                // End the temporary commit lock before resuming the original trip.
+                settlingPauseCount -= 1
+                if wasPlaying && pauseRevision == requestedPauseRevision { resumePlayback(clearError: false) }
+                settlingPauseCount += 1
+                playbackError = "Could not update this route. Your previous route is unchanged. Try again."
+                return false
+            }
+        }
+        guard actionID == id, plannedRoute?.id == originalID else { return false }
+        if Task.isCancelled {
+            settlingPauseCount -= 1
+            if wasPlaying && pauseRevision == requestedPauseRevision { resumePlayback(clearError: false) }
+            settlingPauseCount += 1
+            return false
+        }
+        // Skip/Leave Now remains authoritative even while a road replan awaits.
+        let retainedWait = currentWait
+        let retainedWaitLightID = currentWaitLightID
+        plannedRoute = replacement
+        geometry = RouteGeometry(replacement.coordinates)
+        roadSpeedProfile = RouteSpeedProfile(segments: replacement.speedSegments, length: geometry.length)
+        traveled = 0
+        timingEvents = replacement.timingEvents
+        nextTimingEvent = 0
+        pendingRoadMetadata = nil
+        currentWait = retainedWait; currentWaitLightID = retainedWaitLightID; waitClock = nil
+        _ = startRoute(at: point, coordinates: replacement.coordinates)
+        playbackState = .paused
+        playbackError = nil
+        refreshArrivalAdjustment()
+        settlingPauseCount -= 1
+        if wasPlaying && pauseRevision == requestedPauseRevision { resumePlayback() }
+        else { holdPosition() }
+        settlingPauseCount += 1
+        return true
+    }
+
+    /// A deadline changes the simulation, not the user's pause or visit choices.
+    func updateArrivalDate(_ date: Date?) {
+        guard var route = plannedRoute else { return }
+        guard date?.timeIntervalSinceReferenceDate.isFinite != false else { return }
+        route.arrivalDate = date
+        plannedRoute = route
+        refreshArrivalAdjustment()
     }
 
     func pausePlayback() {
@@ -178,6 +280,7 @@ final class LocationSimulationSession: ObservableObject {
         resumeTask?.cancel(); resumeTask = nil
         playbackTask?.cancel(); playbackTask = nil
         if playbackState == .playing { playbackState = .paused }
+        refreshArrivalAdjustment()
         holdPosition()
     }
 
@@ -190,7 +293,7 @@ final class LocationSimulationSession: ObservableObject {
         return coordinate
     }
 
-    func resumePlayback() {
+    func resumePlayback(clearError: Bool = true) {
         guard settlingPauseCount == 0, plannedRoute != nil, playbackState != .playing, playbackState != .arrived else { return }
         stopHolding()
         resumeTask?.cancel()
@@ -198,8 +301,9 @@ final class LocationSimulationSession: ObservableObject {
         resumeTask = Task { @MainActor in
             await waitForTransport()
             guard !Task.isCancelled, actionID == id, plannedRoute != nil else { return }
-            playbackError = nil
+            if clearError { playbackError = nil }
             playbackState = .playing
+            refreshArrivalAdjustment()
             if currentWait != nil { waitClock = monotonicNow(); holdPosition() }
             startPlaybackLoop()
         }
@@ -213,8 +317,10 @@ final class LocationSimulationSession: ObservableObject {
                 let sleepStarted = monotonicNow()
                 do { try await Task.sleep(for: .seconds(tickInterval)) } catch { return }
                 guard !Task.isCancelled, routeID == activeRouteID else { return }
-                if currentWait != nil {
-                    settleWait()
+                let wasWaiting = currentWait != nil
+                settleWait()
+                refreshArrivalAdjustment()
+                if wasWaiting {
                     // Waiting time never becomes movement, even after an interrupted
                     // timer or a slow hold transmission. Pause freezes this countdown.
                     transportSeconds = 0
@@ -231,12 +337,13 @@ final class LocationSimulationSession: ObservableObject {
                 // Only unexpected scheduling gaps are capped. A slow, active device
                 // transmission contributes its full measured duration to the next step.
                 let elapsed = transportSeconds + min(scheduledSeconds, tickInterval * 2)
-                let speed = speedMetersPerSecond.isFinite ? max(0, speedMetersPerSecond) : 0
+                let speed = speedMetersPerSecond.isFinite ? max(plannedRoute?.arrivalDate == nil ? 0 : 0.1, speedMetersPerSecond) : 0.1
                 let barrier = nextTimingEvent < timingEvents.count ? timingEvents[nextTimingEvent].distance : geometry.length
                 let limit = min(geometry.length, barrier)
                 let next = useRoadSpeeds
-                    ? roadSpeedProfile.advance(from: traveled, seconds: elapsed, upTo: limit, fallbackSpeed: speed)
-                    : min(limit, traveled + speed * elapsed)
+                    ? roadSpeedProfile.advance(from: traveled, seconds: elapsed, upTo: limit, fallbackSpeed: speed,
+                        multiplier: adjustedSpeedMultiplier, maximumSpeed: arrivalMaximumSpeed)
+                    : min(limit, traveled + min(arrivalMaximumSpeed, speed * adjustedSpeedMultiplier) * elapsed)
                 guard let point = geometry.coordinate(at: next) else { return }
                 pendingMovementDistance = next
                 let transmission = await transmit(point)
@@ -248,11 +355,13 @@ final class LocationSimulationSession: ObservableObject {
                     }
                     return
                 }
+                lastTransportSeconds = result.seconds
                 if result.code == 0, routeID == activeRouteID {
                     traveled = next
                     // Record a wait even if Pause happened during the uninterruptible
                     // transport: the accepted stop must not be silently skipped.
                     _ = beginReachedWait()
+                    refreshArrivalAdjustment()
                 }
                 if let metadata = pendingRoadMetadata {
                     pendingRoadMetadata = nil
@@ -280,10 +389,12 @@ final class LocationSimulationSession: ObservableObject {
 
     @discardableResult
     private func beginReachedWait() -> Bool {
+        while nextTimingEvent < timingEvents.count, timingEvents[nextTimingEvent].seconds <= 0 { nextTimingEvent += 1 }
         guard currentWait == nil, nextTimingEvent < timingEvents.count else { return false }
         let event = timingEvents[nextTimingEvent]
         guard event.distance <= traveled + 0.000_001 else { return false }
         nextTimingEvent += 1
+        currentWaitLightID = event.trafficLightID
         beginWait(event.kind, seconds: event.seconds)
         return true
     }
@@ -294,7 +405,7 @@ final class LocationSimulationSession: ObservableObject {
         wait.remainingSeconds = max(0, wait.remainingSeconds - max(0, now - last))
         waitClock = now
         if wait.remainingSeconds <= 0 {
-            currentWait = nil; waitClock = nil
+            currentWait = nil; waitClock = nil; currentWaitLightID = nil
             if playbackState == .playing { stopHolding() }
         } else { currentWait = wait }
     }
@@ -304,19 +415,74 @@ final class LocationSimulationSession: ObservableObject {
     /// Skip only the current wait. A paused route stays paused until Resume.
     func skipCurrentWait() {
         guard currentWait != nil else { return }
-        currentWait = nil; waitClock = nil
+        currentWait = nil; waitClock = nil; currentWaitLightID = nil
+        refreshArrivalAdjustment()
         if playbackState == .playing { stopHolding() }
     }
 
-    var remainingDuration: TimeInterval {
+    private var arrivalMaximumSpeed: Double {
+        plannedRoute?.arrivalDate == nil ? .greatestFiniteMagnitude : ArrivalAdjustment.maximumSpeedMetersPerSecond
+    }
+
+    private func travelDuration(multiplier: Double) -> TimeInterval {
         let speed = speedMetersPerSecond.isFinite ? max(0.1, speedMetersPerSecond) : 0.1
-        let travel = useRoadSpeeds ? roadSpeedProfile.duration(from: traveled, to: geometry.length, fallbackSpeed: speed) : remainingDistance / speed
-        return travel + (currentWait?.remainingSeconds ?? 0)
+        return useRoadSpeeds
+            ? roadSpeedProfile.duration(from: traveled, to: geometry.length, fallbackSpeed: speed,
+                multiplier: multiplier, maximumSpeed: arrivalMaximumSpeed)
+            : remainingDistance / min(arrivalMaximumSpeed, speed * multiplier)
+    }
+
+    var remainingDuration: TimeInterval {
+        travelDuration(multiplier: adjustedSpeedMultiplier) + (currentWait?.remainingSeconds ?? 0)
             + timingEvents.dropFirst(nextTimingEvent).reduce(0) { $0 + $1.seconds }
     }
 
     var effectiveSpeedMetersPerSecond: Double {
-        useRoadSpeeds ? roadSpeedProfile.speed(at: traveled, fallbackSpeed: speedMetersPerSecond) : speedMetersPerSecond
+        let base = useRoadSpeeds ? roadSpeedProfile.speed(at: traveled, fallbackSpeed: speedMetersPerSecond) : max(plannedRoute?.arrivalDate == nil ? 0 : 0.1, speedMetersPerSecond)
+        return min(arrivalMaximumSpeed, max(0, base.isFinite ? base : 0) * adjustedSpeedMultiplier)
+    }
+
+    private func refreshArrivalAdjustment() {
+        guard let deadline = plannedRoute?.arrivalDate else {
+            arrivalAdjustment = nil; adjustedSpeedMultiplier = 1
+            return
+        }
+        settleWait()
+        var fixedWait = currentWait?.kind == .trafficLight ? 0 : currentWait?.remainingSeconds ?? 0
+        var lights: [(index: Int?, id: UUID, seconds: Double)] = []
+        if currentWait?.kind == .trafficLight, let lightID = currentWaitLightID {
+            lights.append((nil, lightID, currentWait!.remainingSeconds))
+        }
+        for index in timingEvents.indices where index >= nextTimingEvent {
+            let event = timingEvents[index]
+            if let lightID = event.trafficLightID {
+                if greenLightIDs.contains(lightID) { timingEvents[index].seconds = 0 }
+                else if event.seconds > 0 { lights.append((index, lightID, event.seconds)) }
+            } else { fixedWait += event.seconds }
+        }
+        // Reserve the last observed bridge latency and a playback tick. This
+        // makes the target conservative, while stalled transport remains visible.
+        let transportReserve = remainingDistance > 0 ? max(0, lastTransportSeconds) + tickInterval : 0
+        let plan = ArrivalTimingPlan(availableSeconds: deadline.timeIntervalSince(wallNow()) - transportReserve,
+            fixedWaitSeconds: fixedWait, redLightSeconds: lights.map(\.seconds), travelDuration: travelDuration)
+        for index in plan.skippedLightIndices {
+            let light = lights[index]
+            greenLightIDs.insert(light.id)
+            if let eventIndex = light.index { timingEvents[eventIndex].seconds = 0 }
+            else {
+                currentWait = nil; currentWaitLightID = nil; waitClock = nil
+                if playbackState == .playing { stopHolding() }
+            }
+        }
+        adjustedSpeedMultiplier = plan.speedMultiplier
+        let warning: String?
+        if !plan.isFeasible {
+            warning = "This arrival time cannot be met with the remaining stays and simulation speed limit. Choose a later time or shorten stays."
+        } else if playbackState == .paused {
+            warning = "Paused. Resume to keep this arrival time."
+        } else { warning = nil }
+        arrivalAdjustment = ArrivalAdjustment(speedMultiplier: plan.speedMultiplier,
+            skippedTrafficLightCount: greenLightIDs.count, isFeasible: plan.isFeasible, warning: warning)
     }
 
     /// Metadata is optional and may arrive after Go. Identity prevents an old
@@ -326,7 +492,14 @@ final class LocationSimulationSession: ObservableObject {
     func applyRoadMetadata(_ metadataRoute: PlannedRoute) -> Bool {
         guard var route = plannedRoute, route.id == metadataRoute.id else { return false }
         route.speedSegments = metadataRoute.speedSegments
-        route.trafficLights = metadataRoute.trafficLights
+        // Progressive Overpass batches rebuild their value objects. Keep the
+        // identity of an already known intersection so a green decision is not
+        // lost or counted twice when later road details arrive.
+        let knownLights = route.trafficLights
+        route.trafficLights = metadataRoute.trafficLights.map { light in
+            guard let known = knownLights.first(where: { abs($0.distance - light.distance) < 2 }) else { return light }
+            return TrafficLightDecision(id: known.id, distance: light.distance, delaySeconds: light.delaySeconds)
+        }
         plannedRoute = route
         roadSpeedProfile = RouteSpeedProfile(segments: route.speedSegments, length: geometry.length)
         if pendingMovementDistance != nil {
@@ -342,11 +515,16 @@ final class LocationSimulationSession: ObservableObject {
         }
         let futureLights = route.timingEvents.filter { event in
             event.kind == .trafficLight && event.distance > traveled + 0.000_001
+        }.map { event in
+            var event = event
+            if let id = event.trafficLightID, greenLightIDs.contains(id) { event.seconds = 0 }
+            return event
         }
         timingEvents = (futureLights + pendingVisits).enumerated().sorted {
             $0.element.distance == $1.element.distance ? $0.offset < $1.offset : $0.element.distance < $1.element.distance
         }.map(\.element)
         nextTimingEvent = 0
+        refreshArrivalAdjustment()
         return true
     }
 
@@ -399,6 +577,7 @@ final class LocationSimulationSession: ObservableObject {
         timingEvents = []; nextTimingEvent = 0; currentWait = nil; waitClock = nil
         pendingRoadMetadata = nil
         roadSpeedProfile = RouteSpeedProfile(segments: [], length: 0)
+        greenLightIDs = []; currentWaitLightID = nil; arrivalAdjustment = nil; adjustedSpeedMultiplier = 1
     }
 
     private func finishRestoration() {

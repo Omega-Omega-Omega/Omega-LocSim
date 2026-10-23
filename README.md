@@ -2,25 +2,33 @@
 
 Omega LocSim is an iPhone location simulator built from [StikDebug](https://github.com/StikDebug/StikDebug), with a native MapKit interface and Liquid Glass controls.
 
-## Version 3.2.6
+## Version 3.3.0
 
-Version 3.2.6 (build 8) rebuilds the supplied icon concept in Apple Icon Composer with 40 individually editable vector layers: a colorful Maps-inspired surface peeling back to reveal an Omega blueprint. The artwork fills the system mask without a white outer border. Settings branding uses the same artwork. This is an artwork-only update; phone behavior was last checked on 3.2.1. The phone remains disconnected.
+Version 3.3.0 (build 9) reorganizes the map around a larger Places shelf, Recents, and Saved Routes, with deeper blue accents and a blue location dot with a heading fan. **Build Route** opens an editable stop list with direct removal, Undo, and accessible reordering. Opening Edit Route keeps playback running; a manually paused route stays paused when changes are applied.
 
-## Version 3.2.1
+Swipe up below a route preview or active trip to find **Route Options**: departure/arrival scheduling, road details, traffic-light probability, and speed. These controls stay in the map sheet. The active card adds current simulated speed. **Arrive By** removes only as many red-light waits as needed before increasing simulated speed, with a finite 250 mph ceiling and an explicit warning when the target cannot be met. Pauses, retained visits, and device interruptions can prevent arrival by the selected time.
 
-Version 3.2.1 (build 3) adds an approved Overpass fallback for optional mapped road details: the app initially tries `overpass-api.de`, then may send the same route query to `overpass.private.coffee`. A working backup can be reused for later requests; if it fails, the primary can be tried again. The existing Mapped Road Details opt-in covers both named services; it remains off by default. See the [Private.coffee service and privacy policy](https://overpass.private.coffee/).
+- Search Omega with live suggestions; save Home, Work, School, custom pins, and bookmarks.
+- Recents records accepted single-location spoofs and route starts/updates locally, deduplicated and limited to the latest 50 entries.
+- Saved Routes stores named, ordered stop snapshots and visit durations. Opening one prepares a fresh road preview for review before Go.
+- Set a stationary location or drive an ordered route with Leave Later, intermediate stays, sampled traffic lights, Pause/Resume, End holding, and Restore Real Location.
+- Choose Road Limits or Constant speed, with US Imperial units by default and one Metric option for all distances and speeds.
+- Start with fallback speed while optional OpenStreetMap road/signal details load through the two approved services.
+- Keep the existing pairing, tunnel, background support, coordinate import, and vector Liquid Glass icon.
 
-- Search with live place suggestions, drop pins, and save Home, School, Work, custom pins, and a local place library.
-- Set a stationary location or prepare driving routes with ordered stops, drag/menu reordering, and editable remaining stops.
-- Choose constant speed or road speeds. Optional mapped road details supply available OpenStreetMap limits and estimated speeds for other matched road types.
-- Leave now or arm a later departure, set intermediate stop durations, and simulate red lights with a configurable probability and skippable waits.
-- Pause, resume, edit, end while holding position, or Restore Real Location. ETA includes selected speeds, stop durations, and simulated light delays.
-- Use US Imperial or Metric consistently for distance and speed.
-- Import coordinate files and use existing pairing, tunnel, and background support.
-
-See [FEATURES.md](FEATURES.md) for every control and the practical limits.
+See [FEATURES.md](FEATURES.md) for the full control inventory and [IMPLEMENTATION.md](IMPLEMENTATION.md) for technical details and evidence.
 
 ## Validation status
+
+**3.3.0 passed 111 isolated checks** (106 XCTest and 5 Swift Testing) and **12 physical Debug acceptance checks** in 30.34 seconds. The device checks covered stationary location, scheduled departure, natural/skipped visits and lights, playback, arrival retargeting, impossible-arrival feedback, live edits, End holding, and Restore.
+
+The ten-minute device protocol completed in 605.739 seconds with 1,113 accepted movement updates, 586.44 m maximum progress, a 5.339-second maximum report gap, and successful restoration. Diagnostics establish **more than nine minutes actually in the background**: 114 active background samples span 562.17 seconds, with audio and location running throughout, While Using authorization, and no reported errors. Apple Maps independently showed movement and restoration. This does not establish a full ten minutes continuously backgrounded or indefinite endurance.
+
+Light/dark and maximum-text UI audit fixes are implemented. VoiceOver, interruption endurance, and live Overpass data remain unverified. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for evidence and scope.
+
+**Final Release delivery verified:** the 3.3.0 build 9 Release build and signed/unsigned IPA checks passed. Physical installation and launch succeeded; installed-app inventory confirms **Omega LocSim `com.omega.locsim` 3.3.0 (9)**. Physical smoke on the same 3.3.0 engine confirmed public-place autocomplete and accepted stationary location in Recents, a four-minute road preview with Go available before metadata, 30 mph playback with the blue heading dot, editing that continued until natural arrival, saved-route name persistence, and Restore to idle/real location. The final small label/scroll fixes were rebuilt and reinstalled; simulator Go/Apply from lower Route Options returned to the trip summary with Pause visible. These checks do not establish every feature under every device condition.
+
+### Earlier 3.2.1 and 3.2.0 checks — October 23, 2026
 
 **3.2.1 build 3 passed 83 isolated checks** (78 XCTest plus 5 Swift Testing), including 24 road metadata tests. The signed Release build succeeded; physical installation and launch succeeded, and inventory verified **Omega LocSim `com.omega.locsim` 3.2.1 (3)**. The signed/unsigned IPA packages were verified. Physical smoke confirmed public-place autocomplete, a 3.4 mi driving preview with Go available at fallback 30 mph during metadata loading, remaining distance falling to 3.3 mi, Pause, and Restore returning to idle without error. The approved mirror probe timed out after 28.0016 seconds with zero bytes (HTTP 000); live metadata remains unverified.
 

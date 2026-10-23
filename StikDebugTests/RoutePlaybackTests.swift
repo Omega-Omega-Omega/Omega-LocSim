@@ -353,6 +353,196 @@ final class RoutePlaybackTests: XCTestCase {
         XCTAssertEqual(transport.maximumActiveCalls, 1)
     }
 
+
+    func testLiveEditCommitsFromAcceptedInFlightPositionAndKeepsPlaying() async throws {
+        let transport = ControlledTransport(blockedCalls: [1])
+        let session = LocationSimulationSession(tickInterval: 0.02, holdInterval: 1, sender: transport.send)
+        defer { transport.releaseAll(); session.stop() }
+        let original = route()
+        session.speedMetersPerSecond = 10
+        await assertPlay(session, original)
+        try await waitUntil { transport.calls.count == 2 }
+        let acceptedAfterDrain = transport.calls[1].point
+        // This preview still starts at the earlier position, as a real editor does.
+        var draft = original
+        draft.id = UUID()
+        let applying = Task { @MainActor in await session.applyEditedRoute(draft, replacingRouteID: original.id) }
+        try await waitUntil { session.playbackState == .paused }
+        XCTAssertEqual(session.plannedRoute?.id, original.id)
+        transport.release(1)
+        let applied = await applying.value
+        XCTAssertTrue(applied)
+        assertSameCoordinate(session.plannedRoute?.coordinates.first, acceptedAfterDrain)
+        XCTAssertNotEqual(session.plannedRoute?.id, draft.id, "Old metadata distances must not be reused after a rebase")
+        try await waitUntil { session.playbackState == .playing && transport.calls.count > 2 }
+        for call in transport.calls.dropFirst(2) {
+            XCTAssertGreaterThanOrEqual(call.point!.latitude, acceptedAfterDrain!.latitude)
+        }
+        XCTAssertEqual(transport.maximumActiveCalls, 1)
+    }
+
+    func testLiveEditPreservesManualPauseAndRejectsStaleEditIdentity() async throws {
+        let transport = ControlledTransport()
+        let session = LocationSimulationSession(tickInterval: 0.02, holdInterval: 0.02, sender: transport.send)
+        defer { session.stop() }
+        let original = route()
+        await assertPlay(session, original)
+        try await waitUntil { session.traveled > 0 }
+        let held = await session.pauseAndWait()
+        let applied = await session.applyEditedRoute(original, replacingRouteID: original.id)
+        XCTAssertTrue(applied)
+        XCTAssertEqual(session.playbackState, .paused)
+        assertSameCoordinate(session.coordinate, held)
+        assertSameCoordinate(session.plannedRoute?.coordinates.first, held)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(session.traveled, 0)
+        let newID = session.plannedRoute?.id
+        let stale = await session.applyEditedRoute(original, replacingRouteID: original.id)
+        XCTAssertFalse(stale)
+        XCTAssertEqual(session.plannedRoute?.id, newID)
+        assertSameCoordinate(session.coordinate, held)
+    }
+
+    func testLiveEditPrunesVisitedStopAndPreservesCurrentDwellOnce() async throws {
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1, sender: { _ in 0 })
+        defer { session.stop() }
+        let stops = [SimulationStop(title: "Start", coordinate: .init(latitude: 33, longitude: -112)),
+                     SimulationStop(title: "Coffee", coordinate: .init(latitude: 33.000001, longitude: -112), dwellSeconds: 30),
+                     SimulationStop(title: "End", coordinate: .init(latitude: 33.00001, longitude: -112))]
+        let shape = RouteGeometry(stops.map(\.coordinate))
+        let original = PlannedRoute(coordinates: stops.map(\.coordinate), stopDistances: Array(shape.distances.dropFirst()), stops: stops)
+        session.speedMetersPerSecond = 1_000
+        await assertPlay(session, original)
+        try await waitUntil { session.currentWait?.kind == .stop(title: "Coffee") }
+        let applied = await session.applyEditedRoute(original, replacingRouteID: original.id)
+        XCTAssertTrue(applied)
+        XCTAssertEqual(session.plannedRoute?.stops.map(\.title), ["Simulated Location", "End"])
+        XCTAssertEqual(session.currentWait?.kind, .stop(title: "Coffee"))
+        XCTAssertLessThan(session.remainingDuration, 31)
+        try await waitUntil { session.playbackState == .playing }
+        session.skipCurrentWait()
+        try await waitUntil { session.playbackState == .arrived }
+    }
+
+    func testDivergedEditReplansFromLivePointAndHonorsPauseDuringCalculation() async throws {
+        var requestedStops: [SimulationStop] = []
+        var gate: CheckedContinuation<PlannedRoute, Error>?
+        let session = LocationSimulationSession(tickInterval: 0.02, holdInterval: 1,
+            replanEditedRoute: { stops in
+                requestedStops = stops
+                return try await withCheckedThrowingContinuation { gate = $0 }
+            }, sender: { _ in 0 })
+        defer { gate?.resume(throwing: CancellationError()); session.stop() }
+        let original = route()
+        await assertPlay(session, original)
+        try await waitUntil { session.traveled > 0 }
+        var draft = route(endLatitude: 34.01)
+        draft.coordinates[0] = .init(latitude: 34, longitude: -112)
+        draft.stops[0].coordinate = draft.coordinates[0]
+        draft.stopDistances = [RouteGeometry(draft.coordinates).length]
+        let applying = Task { @MainActor in await session.applyEditedRoute(draft, replacingRouteID: original.id) }
+        try await waitUntil { gate != nil }
+        assertSameCoordinate(requestedStops.first?.coordinate, session.coordinate)
+        session.pausePlayback()
+        let geometry = RouteGeometry(requestedStops.map(\.coordinate))
+        let fresh = PlannedRoute(coordinates: requestedStops.map(\.coordinate), stopDistances: [geometry.length], stops: requestedStops)
+        gate?.resume(returning: fresh); gate = nil
+        let applied = await applying.value
+        XCTAssertTrue(applied)
+        XCTAssertEqual(session.playbackState, .paused)
+        assertSameCoordinate(session.plannedRoute?.coordinates.first, requestedStops.first?.coordinate)
+    }
+
+    func testFailedLiveEditReplanResumesOriginalTripAndKeepsProgress() async throws {
+        let session = LocationSimulationSession(tickInterval: 0.02, holdInterval: 1,
+            replanEditedRoute: { _ in throw URLError(.notConnectedToInternet) }, sender: { _ in 0 })
+        defer { session.stop() }
+        let original = route()
+        await assertPlay(session, original)
+        try await waitUntil { session.traveled > 0 }
+        let before = session.traveled
+        var draft = route(endLatitude: 34.01)
+        draft.coordinates[0] = .init(latitude: 34, longitude: -112)
+        draft.stops[0].coordinate = draft.coordinates[0]
+        draft.stopDistances = [RouteGeometry(draft.coordinates).length]
+        let applied = await session.applyEditedRoute(draft, replacingRouteID: original.id)
+        XCTAssertFalse(applied)
+        try await waitUntil { session.playbackState == .playing }
+        XCTAssertEqual(session.plannedRoute?.id, original.id)
+        XCTAssertGreaterThanOrEqual(session.traveled, before)
+        XCTAssertNotNil(session.playbackError)
+    }
+
+
+    func testRebaseDoesNotReplayCompletedOutAndBackLegs() throws {
+        let stops = [SimulationStop(title: "Start", coordinate: .init(latitude: 33, longitude: -112)),
+                     SimulationStop(title: "B", coordinate: .init(latitude: 33.01, longitude: -112)),
+                     SimulationStop(title: "Return", coordinate: .init(latitude: 33, longitude: -112)),
+                     SimulationStop(title: "C", coordinate: .init(latitude: 32.99, longitude: -112))]
+        let geometry = RouteGeometry(stops.map(\.coordinate))
+        let draft = PlannedRoute(coordinates: stops.map(\.coordinate), stopDistances: Array(geometry.distances.dropFirst()), stops: stops)
+        let rebased = try XCTUnwrap(draft.rebased(at: stops[2].coordinate, omittingStopIDs: [stops[1].id, stops[2].id]))
+        XCTAssertEqual(rebased.stops.map(\.title), ["Simulated Location", "C"])
+        XCTAssertLessThan(RouteGeometry(rebased.coordinates).length, 1_200)
+        XCTAssertTrue(rebased.coordinates.allSatisfy { $0.latitude <= 33 })
+        XCTAssertEqual(rebased.distance, RouteGeometry(rebased.coordinates).length, accuracy: 0.00001)
+    }
+
+
+    func testAmbiguousSingleLegLoopRequiresRoadReplan() {
+        let points = [CLLocationCoordinate2D(latitude: 33, longitude: -112),
+                      CLLocationCoordinate2D(latitude: 33.01, longitude: -112),
+                      CLLocationCoordinate2D(latitude: 33, longitude: -112),
+                      CLLocationCoordinate2D(latitude: 32.99, longitude: -112)]
+        let stops = [SimulationStop(title: "Start", coordinate: points[0]), SimulationStop(title: "End", coordinate: points[3])]
+        let draft = PlannedRoute(coordinates: points, stopDistances: [RouteGeometry(points).length], stops: stops)
+        XCTAssertNil(draft.rebased(at: points[2]), "Do not choose an arbitrary pass through a self-intersection")
+    }
+
+    func testNonPrefixCompletedStopRequiresRoadReplan() {
+        let stops = [SimulationStop(title: "A", coordinate: .init(latitude: 33, longitude: -112)),
+                     SimulationStop(title: "C", coordinate: .init(latitude: 33.02, longitude: -112)),
+                     SimulationStop(title: "B", coordinate: .init(latitude: 33.01, longitude: -112)),
+                     SimulationStop(title: "D", coordinate: .init(latitude: 33.03, longitude: -112))]
+        let geometry = RouteGeometry(stops.map(\.coordinate))
+        let draft = PlannedRoute(coordinates: stops.map(\.coordinate), stopDistances: Array(geometry.distances.dropFirst()), stops: stops)
+        XCTAssertNil(draft.rebased(at: stops[2].coordinate, omittingStopIDs: [stops[2].id]),
+                     "Omitting a row must also remove its road detour")
+    }
+
+    func testSkipDuringAwaitedEditDoesNotResurrectVisit() async throws {
+        var gate: CheckedContinuation<PlannedRoute, Error>?
+        var requestedStops: [SimulationStop] = []
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1,
+            replanEditedRoute: { stops in
+                requestedStops = stops
+                return try await withCheckedThrowingContinuation { gate = $0 }
+            }, sender: { _ in 0 })
+        defer { gate?.resume(throwing: CancellationError()); session.stop() }
+        let stops = [SimulationStop(title: "Start", coordinate: .init(latitude: 33, longitude: -112)),
+                     SimulationStop(title: "Coffee", coordinate: .init(latitude: 33.000001, longitude: -112), dwellSeconds: 30),
+                     SimulationStop(title: "End", coordinate: .init(latitude: 33.00001, longitude: -112))]
+        let geometry = RouteGeometry(stops.map(\.coordinate))
+        let original = PlannedRoute(coordinates: stops.map(\.coordinate), stopDistances: Array(geometry.distances.dropFirst()), stops: stops)
+        session.speedMetersPerSecond = 1_000
+        await assertPlay(session, original)
+        try await waitUntil { session.currentWait?.kind == .stop(title: "Coffee") }
+        var draft = route(endLatitude: 34.01)
+        draft.coordinates[0] = .init(latitude: 34, longitude: -112)
+        draft.stops[0].coordinate = draft.coordinates[0]
+        draft.stopDistances = [RouteGeometry(draft.coordinates).length]
+        let applying = Task { @MainActor in await session.applyEditedRoute(draft, replacingRouteID: original.id) }
+        try await waitUntil { gate != nil }
+        session.skipCurrentWait()
+        let fresh = PlannedRoute(coordinates: requestedStops.map(\.coordinate),
+            stopDistances: [RouteGeometry(requestedStops.map(\.coordinate)).length], stops: requestedStops)
+        gate?.resume(returning: fresh); gate = nil
+        let applied = await applying.value
+        XCTAssertTrue(applied)
+        XCTAssertNil(session.currentWait)
+        try await waitUntil { session.playbackState == .playing }
+    }
+
     private enum WaitError: Error { case timedOut }
 }
 

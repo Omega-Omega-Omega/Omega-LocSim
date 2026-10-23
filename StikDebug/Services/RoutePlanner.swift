@@ -18,6 +18,7 @@ struct PlannedRoute {
     var stopDistances: [Double]
     var stops: [SimulationStop]
     var departureDate: Date? = nil
+    var arrivalDate: Date? = nil
     /// Sampled once during route planning. Zero-delay entries represent green lights.
     var trafficLights: [TrafficLightDecision] = []
     var speedSegments: [RouteSpeedSegment] = []
@@ -169,5 +170,88 @@ struct RouteGeometry {
         if delta > 180 { delta -= 360 }; if delta < -180 { delta += 360 }
         let longitude = (a.longitude + delta * fraction + 540).truncatingRemainder(dividingBy: 360) - 180
         return CLLocationCoordinate2D(latitude: a.latitude + (b.latitude - a.latitude) * fraction, longitude: longitude)
+    }
+}
+
+extension PlannedRoute {
+    /// Trim a preview from the live accepted position, keeping route distances
+    /// and timing metadata in the same coordinate system. A far-off preview must
+    /// be replanned on roads instead of drawing a long straight-line shortcut.
+    func rebased(at point: CLLocationCoordinate2D, omittingStopIDs: Set<UUID> = []) -> PlannedRoute? {
+        let allVisits = Array(zip(stops.dropFirst(), stopDistances))
+        guard let firstPendingIndex = allVisits.firstIndex(where: { !omittingStopIDs.contains($0.0.id) }) else { return nil }
+        // Removing an interior stop changes road choice. Replan rather than
+        // retaining the old detour through a stop that is no longer pending.
+        guard !allVisits.dropFirst(firstPendingIndex).contains(where: { omittingStopIDs.contains($0.0.id) }) else { return nil }
+        let visits = Array(allVisits.dropFirst(firstPendingIndex))
+        let lowerBound = firstPendingIndex > 0 ? allVisits[firstPendingIndex - 1].1 : 0
+        let geometry = RouteGeometry(coordinates)
+        guard let projection = geometry.projection(of: point, from: lowerBound, upTo: visits[0].1), projection.offset <= 35 else { return nil }
+        let tail = zip(coordinates, geometry.distances).filter { $0.1 > projection.distance + 0.000_001 }.map(\.0)
+        let newCoordinates = [point, projection.coordinate] + tail
+        let connector = CLLocation(latitude: point.latitude, longitude: point.longitude)
+            .distance(from: CLLocation(latitude: projection.coordinate.latitude, longitude: projection.coordinate.longitude))
+        let shift = connector - projection.distance
+        var replacement = self
+        // Old enrichment requests refer to the original distance system.
+        replacement.id = UUID()
+        replacement.coordinates = newCoordinates
+        replacement.stops = [SimulationStop(title: "Simulated Location", coordinate: point)] + visits.map(\.0)
+        replacement.stopDistances = visits.map { max(0, $0.1 + shift) }
+        replacement.trafficLights = trafficLights.filter { $0.distance > projection.distance + 0.000_001 }.map {
+            var light = $0; light.distance += shift; return light
+        }
+        replacement.speedSegments = speedSegments.filter { $0.endDistance > projection.distance }.map {
+            var segment = $0
+            segment.startDistance = max(connector, segment.startDistance + shift)
+            segment.endDistance += shift
+            return segment
+        }
+        return replacement
+    }
+}
+
+extension RouteGeometry {
+    struct Projection {
+        let coordinate: CLLocationCoordinate2D
+        let distance: Double
+        let offset: Double
+    }
+
+    /// Search only the next leg so a looping route cannot jump to a later lap.
+    func projection(of point: CLLocationCoordinate2D, from lowerBound: Double = 0, upTo limit: Double) -> Projection? {
+        guard points.count > 1 else { return nil }
+        var best: Projection?
+        var candidates: [Projection] = []
+        let longitudeScale = cos(point.latitude * .pi / 180)
+        func longitudeDelta(_ value: Double) -> Double {
+            var delta = value - point.longitude
+            if delta > 180 { delta -= 360 }; if delta < -180 { delta += 360 }
+            return delta * longitudeScale
+        }
+        for index in 1..<points.count where distances[index - 1] <= limit && distances[index] >= lowerBound {
+            let a = points[index - 1], b = points[index]
+            let ax = longitudeDelta(a.longitude), ay = a.latitude - point.latitude
+            let bx = longitudeDelta(b.longitude), by = b.latitude - point.latitude
+            let dx = bx - ax, dy = by - ay
+            let squared = dx * dx + dy * dy
+            let span = distances[index] - distances[index - 1]
+            let upper = span > 0 ? min(1, max(0, limit - distances[index - 1]) / span) : 0
+            let lower = span > 0 ? max(0, min(1, (lowerBound - distances[index - 1]) / span)) : 0
+            let fraction = squared > 0 ? min(upper, max(lower, -(ax * dx + ay * dy) / squared)) : lower
+            let distance = distances[index - 1] + fraction * span
+            guard let coordinate = coordinate(at: distance) else { continue }
+            let offset = CLLocation(latitude: point.latitude, longitude: point.longitude)
+                .distance(from: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude))
+            let candidate = Projection(coordinate: coordinate, distance: distance, offset: offset)
+            candidates.append(candidate)
+            if best == nil || offset < best!.offset { best = candidate }
+        }
+        // A single road leg can double back over itself. Coordinates alone do
+        // not identify which pass is current, so ambiguous projections replan.
+        if let best, candidates.contains(where: {
+            $0.offset <= best.offset + 2 && abs($0.distance - best.distance) > 35
+        }) { return nil }
+        return best
     }
 }

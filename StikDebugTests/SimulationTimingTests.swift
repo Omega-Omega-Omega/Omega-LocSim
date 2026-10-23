@@ -333,4 +333,137 @@ final class SimulationTimingTests: XCTestCase {
         session.skipCurrentWait()
         try await waitUntil { session.playbackState == .arrived }
     }
+    func testArrivalPlanSkipsMinimumNumberOfLightsBeforeIncreasingSpeed() {
+        let travel: (Double) -> Double = { 100 / min(5, $0) }
+        let noChange = ArrivalTimingPlan(availableSeconds: 205, fixedWaitSeconds: 10,
+            redLightSeconds: [5, 30, 60], travelDuration: travel)
+        XCTAssertTrue(noChange.skippedLightIndices.isEmpty)
+        XCTAssertEqual(noChange.speedMultiplier, 1)
+        let small = ArrivalTimingPlan(availableSeconds: 200, fixedWaitSeconds: 10,
+            redLightSeconds: [5, 30, 60], travelDuration: travel)
+        XCTAssertEqual(small.skippedLightIndices, [2], "One long red is enough; preserve the others")
+        XCTAssertEqual(small.speedMultiplier, 1)
+        let medium = ArrivalTimingPlan(availableSeconds: 125, fixedWaitSeconds: 10,
+            redLightSeconds: [5, 30, 60], travelDuration: travel)
+        XCTAssertEqual(medium.skippedLightIndices, [1, 2])
+        XCTAssertEqual(medium.speedMultiplier, 1)
+        let short = ArrivalTimingPlan(availableSeconds: 60, fixedWaitSeconds: 10,
+            redLightSeconds: [5, 30, 60], travelDuration: travel)
+        XCTAssertEqual(short.skippedLightIndices, [0, 1, 2])
+        XCTAssertEqual(short.speedMultiplier, 2, accuracy: 0.00001)
+        XCTAssertTrue(short.isFeasible)
+    }
+
+    func testArrivalPlanReportsImpossibleWaitsAndSpeedWithoutInfinity() {
+        let travel: (Double) -> Double = { 100 / min(5, $0) }
+        for budget in [0.0, -1, 10, 29, .nan, .infinity] {
+            let plan = ArrivalTimingPlan(availableSeconds: budget, fixedWaitSeconds: 10,
+                redLightSeconds: [30], travelDuration: travel)
+            XCTAssertFalse(plan.isFeasible)
+            XCTAssertTrue(plan.speedMultiplier.isFinite)
+            XCTAssertEqual(plan.skippedLightIndices, [0])
+        }
+        let exact = ArrivalTimingPlan(availableSeconds: 30, fixedWaitSeconds: 10,
+            redLightSeconds: [], travelDuration: travel)
+        XCTAssertTrue(exact.isFeasible)
+    }
+
+    func testAdjustedProfileRespectsPerSegmentCapAndSameETAIntegration() {
+        let profile = RouteSpeedProfile(segments: [
+            .init(startDistance: 0, endDistance: 100, metersPerSecond: 10),
+            .init(startDistance: 100, endDistance: 300, metersPerSecond: 100)
+        ], length: 300)
+        let duration = profile.duration(from: 0, to: 300, fallbackSpeed: 10, multiplier: 2, maximumSpeed: 100)
+        XCTAssertEqual(duration, 7, accuracy: 0.00001)
+        XCTAssertEqual(profile.advance(from: 0, seconds: duration, upTo: 300,
+            fallbackSpeed: 10, multiplier: 2, maximumSpeed: 100), 300, accuracy: 0.00001)
+    }
+
+    func testLiveArrivalRetargetPreservesPauseAndDwellThenRecoversWithLaterDeadline() async throws {
+        var now = Date(timeIntervalSince1970: 10_000)
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1,
+            wallNow: { now }, sender: { _ in 0 })
+        defer { session.stop() }
+        session.speedMetersPerSecond = 1_000
+        var planned = route(dwell: 30)
+        planned.trafficLights = [.init(distance: planned.distance * 0.8, delaySeconds: 60)]
+        let applied = await session.play(planned)
+        XCTAssertTrue(applied)
+        try await waitUntil { session.currentWait?.kind == .stop(title: "Coffee") }
+        _ = await session.pauseAndWait()
+        let wait = session.currentWait!.remainingSeconds
+        session.updateArrivalDate(now.addingTimeInterval(35))
+        XCTAssertEqual(session.playbackState, .paused)
+        XCTAssertEqual(session.currentWait?.remainingSeconds, wait)
+        XCTAssertTrue(session.arrivalAdjustment!.isFeasible)
+        XCTAssertEqual(session.arrivalAdjustment?.skippedTrafficLightCount, 1)
+        XCTAssertNotNil(session.arrivalAdjustment?.warning)
+        now += 40
+        session.updateArrivalDate(planned.arrivalDate ?? now.addingTimeInterval(-5))
+        XCTAssertFalse(session.arrivalAdjustment!.isFeasible)
+        XCTAssertEqual(session.playbackState, .paused)
+        XCTAssertEqual(session.currentWait?.remainingSeconds, wait)
+        session.updateArrivalDate(now.addingTimeInterval(120))
+        XCTAssertTrue(session.arrivalAdjustment!.isFeasible)
+        session.resumePlayback()
+        try await waitUntil { session.playbackState == .playing }
+        XCTAssertNil(session.arrivalAdjustment?.warning)
+        session.updateArrivalDate(nil)
+        XCTAssertNil(session.arrivalAdjustment)
+        XCTAssertEqual(session.currentWait?.kind, .stop(title: "Coffee"))
+    }
+
+    func testArrivalRetargetCanReleaseCurrentRedWithoutResumingPausedTrip() async throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1,
+            wallNow: { now }, sender: { _ in 0 })
+        defer { session.stop() }
+        session.speedMetersPerSecond = 10
+        var planned = route()
+        planned.trafficLights = [.init(distance: 0, delaySeconds: 60)]
+        let applied = await session.play(planned)
+        XCTAssertTrue(applied)
+        try await waitUntil { session.currentWait?.kind == .trafficLight }
+        _ = await session.pauseAndWait()
+        session.updateArrivalDate(now.addingTimeInterval(1))
+        XCTAssertEqual(session.playbackState, .paused)
+        XCTAssertNil(session.currentWait)
+        XCTAssertEqual(session.traveled, 0)
+        XCTAssertEqual(session.arrivalAdjustment?.skippedTrafficLightCount, 1)
+        XCTAssertLessThanOrEqual(session.effectiveSpeedMetersPerSecond, ArrivalAdjustment.maximumSpeedMetersPerSecond)
+    }
+
+    func testTinyPositiveRoadSpeedStillCanReachDeadlineSpeedCap() {
+        let profile = RouteSpeedProfile(segments: [.init(startDistance: 0, endDistance: 1_000, metersPerSecond: 0.01)], length: 1_000)
+        let plan = ArrivalTimingPlan(availableSeconds: 10, fixedWaitSeconds: 0, redLightSeconds: []) {
+            profile.duration(from: 0, to: 1_000, fallbackSpeed: 0.01, multiplier: $0,
+                             maximumSpeed: ArrivalAdjustment.maximumSpeedMetersPerSecond)
+        }
+        XCTAssertTrue(plan.isFeasible)
+        XCTAssertEqual(profile.duration(from: 0, to: 1_000, fallbackSpeed: 0.01,
+            multiplier: plan.speedMultiplier, maximumSpeed: ArrivalAdjustment.maximumSpeedMetersPerSecond), 10, accuracy: 0.00001)
+    }
+
+    func testProgressiveMetadataDoesNotReviveOrDoubleCountGreenedLight() async throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let session = LocationSimulationSession(tickInterval: 0.01, holdInterval: 1,
+            wallNow: { now }, sender: { _ in 0 })
+        defer { session.stop() }
+        var planned = route()
+        planned.trafficLights = [.init(distance: planned.distance * 0.8, delaySeconds: 60)]
+        planned.arrivalDate = now.addingTimeInterval(1)
+        let applied = await session.play(planned)
+        XCTAssertTrue(applied)
+        _ = await session.pauseAndWait()
+        XCTAssertEqual(session.arrivalAdjustment?.skippedTrafficLightCount, 1)
+        var metadata = planned
+        metadata.trafficLights = [.init(distance: planned.distance * 0.8, delaySeconds: 60)]
+        XCTAssertTrue(session.applyRoadMetadata(metadata))
+        XCTAssertEqual(session.arrivalAdjustment?.skippedTrafficLightCount, 1)
+        XCTAssertLessThan(session.remainingDuration, 1)
+        session.updateArrivalDate(nil)
+        XCTAssertTrue(session.applyRoadMetadata(metadata))
+        XCTAssertLessThan(session.remainingDuration, 1, "Clearing a deadline does not reroll an already green light")
+    }
+
 }

@@ -215,6 +215,55 @@ enum OmegaDeviceAcceptanceRunner {
                 session.resumePlayback()
                 try await wait("resume movement") { session.traveled > held }
             }
+            try await check("Arrive By retargets lights and speed") {
+                session.useRoadSpeeds = false
+                session.speedMetersPerSecond = 10
+                var route = fixture(lengthScale: 50)
+                route.trafficLights = [.init(distance: route.distance * 0.7, delaySeconds: 90)]
+                route.arrivalDate = Date().addingTimeInterval(40)
+                try await apply(route)
+                try await wait("arrival-target progress") { session.traveled > 0 }
+                try require(session.arrivalAdjustment?.skippedTrafficLightCount == 1,
+                            "Arrival target did not remove the red-light delay.")
+                let deadline = Date().addingTimeInterval(8)
+                session.updateArrivalDate(deadline)
+                try require(session.arrivalAdjustment?.isFeasible == true && session.effectiveSpeedMetersPerSecond > 10,
+                            "Earlier arrival target did not increase simulation speed.")
+                try await wait("arrival target completes", timeout: 15) { session.playbackState == .arrived }
+                try require(Date().timeIntervalSince(deadline) <= 2,
+                            "Arrival exceeded the hardware-check transport tolerance.")
+            }
+            try await check("Impossible arrival retains stop stays and reports a warning") {
+                var route = fixture(dwell: 60, lengthScale: 2)
+                route.arrivalDate = Date().addingTimeInterval(5)
+                try await apply(route)
+                try require(session.arrivalAdjustment?.isFeasible == false && session.arrivalAdjustment?.warning != nil,
+                            "Impossible arrival did not report a timing warning.")
+                try await wait("required stay begins") { session.currentWait?.kind == .stop(title: "Public Test Stop") }
+                try require((session.currentWait?.remainingSeconds ?? 0) > 50,
+                            "Arrival target silently removed the requested stay.")
+                await session.endPlayback()
+            }
+            try await check("Live route edits preserve progress and user pause") {
+                try await apply(fixture(lengthScale: 100))
+                try await wait("edit route progress") { session.traveled > 2 }
+                let original = session.plannedRoute!
+                let acceptedLatitude = session.coordinate!.latitude
+                let updated = await session.applyEditedRoute(original, replacingRouteID: original.id)
+                try require(updated, "Editing a running route was rejected.")
+                try await wait("edited route resumes", timeout: 5) { session.playbackState == .playing }
+                try require(session.coordinate!.latitude >= acceptedLatitude,
+                            "Applying route edits moved back to an earlier position.")
+                _ = await session.pauseAndWait()
+                let paused = session.plannedRoute!
+                let heldLatitude = session.coordinate!.latitude
+                let pausedUpdate = await session.applyEditedRoute(paused, replacingRouteID: paused.id)
+                try require(pausedUpdate && session.playbackState == .paused,
+                            "Applying route edits resumed a user-paused route.")
+                try await Task.sleep(for: .seconds(1))
+                try require(session.coordinate!.latitude == heldLatitude,
+                            "Paused route moved during or after its edit.")
+            }
             try await check("End Route holds the last accepted position") {
                 await session.endPlayback()
                 let held = session.coordinate

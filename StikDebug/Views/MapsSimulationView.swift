@@ -16,11 +16,11 @@ struct LocationSimulationView: View {
     @State private var preview: PlannedRoute?
     @State private var editing = false
     @State private var loading = false
+    @State private var hasPresentedRoutePreview = false
     @State private var error: String?
     @State private var simulationErrorMessage = ""
     @State private var showsSimulationError = false
     @State private var setup = false
-    @State private var imports = false
     @State private var filePicker = false
     @State private var pinTarget: OmegaPinKind?
     @State private var replacingPinID: UUID?
@@ -29,8 +29,18 @@ struct LocationSimulationView: View {
     @State private var customPinPlace: SimulationStop?
     @State private var editedName = ""
     @State private var showsNameEditor = false
-    @State private var showsTiming = false
     @State private var leaveLater = false
+    @State private var arriveBy = false
+    @State private var arrivalDate = Date.now.addingTimeInterval(3600)
+    @State private var editingRouteID: UUID?
+    @State private var sheetScrollRequest = 0
+    @State private var sheetScrollTarget = SheetScrollTarget.top
+    @State private var librarySection: LibrarySection?
+    @State private var namingRoute = false
+    @State private var renamingRouteID: UUID?
+    @State private var routeToSave: [SimulationStop] = []
+    @State private var savedFeedback: String?
+    @State private var removedStop: (stop: SimulationStop, index: Int)?
     @State private var departureDate = Date.now.addingTimeInterval(3600)
     @State private var dwellStopID: UUID?
     @State private var dwellMinutes = 0.0
@@ -48,13 +58,10 @@ struct LocationSimulationView: View {
     @State private var searchTarget: RouteSearchTarget?
     @State private var needsStart = false
     @State private var applyingRoute = false
-    @State private var preparingEdit = false
-    @State private var editRequestID = UUID()
     @State private var concludingActionID: UUID?
-    @State private var showsSpeed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.colorScheme) private var colorScheme
     @State private var followsSimulation = false
     @State private var previousAcceptedCoordinate: CLLocationCoordinate2D?
     @State private var simulatedHeading = 0.0
@@ -65,6 +72,16 @@ struct LocationSimulationView: View {
     @AppStorage("omegaRedLightProbability") private var redLightProbability = 0.5
     @AppStorage("omegaMappedTrafficLights") private var mappedTrafficLights = true
     @AppStorage("omegaRoadMetadataAllowed") private var roadMetadataAllowed = false
+
+    private enum SheetScrollTarget: String {
+        case top = "sheet-top"
+        case options = "route-options"
+    }
+
+    private enum LibrarySection: String, CaseIterable, Identifiable {
+        case places = "Places", recents = "Recents", routes = "Saved Routes"
+        var id: String { rawValue }
+    }
 
     private enum RouteSearchTarget: Equatable {
         case startingLocation
@@ -89,7 +106,7 @@ struct LocationSimulationView: View {
         case .startingLocation: return "Starting Location"
         case .replace: return "Replace Stop"
         case .addStop: return "Add Stop"
-        case nil: return editing ? "Edit Route" : "Directions"
+        case nil: return editing ? "Edit Route" : "Build Route"
         }
     }
     private var speed: Binding<Double> {
@@ -116,27 +133,39 @@ struct LocationSimulationView: View {
         let value = tripIsVisible && session.useRoadSpeeds ? session.effectiveSpeedMetersPerSecond * units.speedMultiplier : speed.wrappedValue
         return "\(Int(value.rounded())) \(units.speedSymbol)"
     }
-    private var compactDetent: PresentationDetent { .height(dynamicTypeSize.isAccessibilitySize ? 460 : session.currentWait != nil ? 245 : 185) }
-    private var speedDetent: PresentationDetent { .height(dynamicTypeSize.isAccessibilitySize ? 650 : 400) }
+    private var currentSpeedLabel: String {
+        let moving = session.playbackState == .playing && session.currentWait == nil
+        let value = moving ? session.effectiveSpeedMetersPerSecond * units.speedMultiplier : 0
+        return "\(Int(max(0, value).rounded()))"
+    }
+    private var timingLabel: String {
+        if arriveBy { return "Arrive by \(arrivalDate.formatted(date: .omitted, time: .shortened))" }
+        if leaveLater && !editing { return "Leave at \(departureDate.formatted(date: .omitted, time: .shortened))" }
+        return "Leave Now"
+    }
+    private var contentFill: Color { Color(uiColor: .secondarySystemGroupedBackground).opacity(reduceTransparency ? 1 : 0.68) }
+    private var compactDetent: PresentationDetent { .height(dynamicTypeSize.isAccessibilitySize ? 460 : session.currentWait != nil ? 325 : 260) }
     private var previewDetent: PresentationDetent { .height(dynamicTypeSize.isAccessibilitySize ? 680 : 530) }
     var body: some View {
         MapReader { proxy in
             Map(position: $camera) {
-                UserAnnotation()
+                if session.coordinate == nil { UserAnnotation() }
                 if let route {
-                    MapPolyline(coordinates: route.coordinates).stroke(.blue, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                    MapPolyline(coordinates: route.coordinates).stroke(OmegaMapPalette.blue, style: StrokeStyle(lineWidth: 7, lineCap: .round))
                 }
                 ForEach(Array(visibleStops.enumerated()), id: \.element.id) { index, stop in
-                    Marker(stop.title, systemImage: !needsStart && index == 0 ? "location.fill" : index == visibleStops.count - 1 ? "mappin" : "\(index).circle.fill", coordinate: stop.coordinate)
-                        .tint(!needsStart && index == 0 ? .blue : index == visibleStops.count - 1 ? .red : .orange)
+                    if index != 0 || needsStart || session.plannedRoute == nil {
+                        Marker(stop.title, systemImage: !needsStart && index == 0 ? "location.fill" : index == visibleStops.count - 1 ? "mappin" : "\(index).circle.fill", coordinate: stop.coordinate)
+                            .tint(!needsStart && index == 0 ? OmegaMapPalette.blue : index == visibleStops.count - 1 ? .red : .orange)
+                    }
                 }
                 if let selected { Marker(selected.title, coordinate: selected.coordinate) }
                 if let point = session.coordinate {
                     Annotation("Simulated location", coordinate: point) {
-                        Image(systemName: "location.north.fill").font(.title2).foregroundStyle(.white)
-                            .rotationEffect(.degrees(simulatedHeading - visibleMapHeading))
-                            .padding(12).background(.blue, in: Circle()).shadow(radius: 4)
-                    }
+                        OmegaHeadingDot(heading: simulatedHeading - visibleMapHeading)
+                            .accessibilityLabel("Simulated location")
+                            .accessibilityValue("Heading \(Int((simulatedHeading + 360).truncatingRemainder(dividingBy: 360))) degrees")
+                    }.annotationTitles(.hidden)
                 }
             }
             .mapStyle(.standard(elevation: .realistic))
@@ -174,6 +203,7 @@ struct LocationSimulationView: View {
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { mapSize = $0 }
         .sheet(isPresented: $sheetVisible) {
+            ScrollViewReader { scrollProxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if tripIsVisible { tripCard }
@@ -197,6 +227,11 @@ struct LocationSimulationView: View {
                         }
                     }
                     if !query.isEmpty { searchResults }
+                    if let savedFeedback {
+                        Label(savedFeedback, systemImage: "checkmark.circle.fill")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityElement(children: .combine)
+                    }
                     if (session.isActive || applyingRoute) && !tripIsVisible {
                         HStack {
                             if session.plannedRoute == nil { Label("Holding location", systemImage: "location.fill").font(.caption).foregroundStyle(.secondary) }
@@ -208,7 +243,22 @@ struct LocationSimulationView: View {
                         Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout)
                     }
                 }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 16)
+                    .id(SheetScrollTarget.top.rawValue)
             }
+            .onChange(of: sheetScrollRequest) { _, request in
+                let target = sheetScrollTarget
+                Task { @MainActor in
+                    // Let the new trip/editor content and its detent finish replacing
+                    // the old content before positioning the sheet. A newer request wins.
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard sheetScrollRequest == request else { return }
+                    withAnimation(target == .top || reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                        scrollProxy.scrollTo(target.rawValue, anchor: .top)
+                    }
+                }
+            }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { draftActionBar }
             .scrollIndicators(.hidden)
             .onChange(of: session.playbackError, initial: true) { _, message in
                 guard let message else { return }
@@ -221,7 +271,7 @@ struct LocationSimulationView: View {
             } message: {
                 Text(simulationErrorMessage)
             }
-            .presentationDetents([compactDetent, previewDetent, speedDetent, .height(290), .medium, .large], selection: $detent)
+            .presentationDetents([compactDetent, previewDetent, .height(290), .medium, .large], selection: $detent)
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(34)
             .presentationBackground {
@@ -233,10 +283,9 @@ struct LocationSimulationView: View {
             .sheet(isPresented: $setup) {
                 SettingsView(onClose: { setup = false })
             }
-            .sheet(isPresented: $imports) { librarySheet }
-            .sheet(isPresented: $showsTiming) { timingSheet }
+            .sheet(item: $librarySection) { section in librarySheet(section) }
             .sheet(isPresented: Binding(get: { dwellStopID != nil }, set: { if !$0 { dwellStopID = nil } })) { dwellSheet }
-            .alert(customPinPlace != nil ? "Name Pinned Place" : "Rename Place", isPresented: $showsNameEditor) {
+            .alert(namingRoute ? "Save Route" : customPinPlace != nil ? "Name Pinned Place" : "Rename Place", isPresented: $showsNameEditor) {
                 TextField("Name", text: $editedName)
                 Button("Cancel", role: .cancel) { clearNameEditor() }
                 Button("Save") { saveNameEdit() }
@@ -259,11 +308,12 @@ struct LocationSimulationView: View {
                             SimulationStop(title: "Imported End", coordinate: points[points.count - 1])
                         ])
                         stops = preview!.stops; selected = nil; needsStart = false; searchTarget = nil; detent = previewDetent
+                        hasPresentedRoutePreview = true
                     }
                 } catch { self.error = error.localizedDescription }
             }
         }
-        .tint(colorScheme == .dark ? .cyan : .blue)
+        .tint(OmegaMapPalette.blue)
         .onAppear {
             if FileManager.default.fileExists(atPath: PairingFileStore.prepareURL().path) { startTunnelInBackground() }
         }
@@ -271,8 +321,16 @@ struct LocationSimulationView: View {
             placeSearch.update(value, region: searchRegion)
             if !value.isEmpty { detent = .large }
         }
+        .onChange(of: tripIsVisible) { _, visible in
+            if visible {
+                syncActiveTiming()
+                // Go, Apply Changes, and closing an edit all reveal the live trip.
+                // Reset only on that transition, never for waits or metadata updates.
+                requestSheetScroll(.top)
+            }
+        }
         .onChange(of: session.currentWait != nil) { _, _ in
-            if tripIsVisible, !showsSpeed { detent = compactDetent }
+            if tripIsVisible, detent != .large { detent = compactDetent }
         }
         .onReceive(session.$coordinate) { point in
             if let point, let previous = previousAcceptedCoordinate, session.plannedRoute != nil,
@@ -292,40 +350,104 @@ struct LocationSimulationView: View {
     }
 
     private var pinnedPlaces: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 18) {
-                    ForEach([OmegaPinKind.home, .school, .work]) { kind in
-                        pinButton(kind: kind, pin: library.pin(kind))
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeading("Places") { openLibrary(.places) }
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        ForEach([OmegaPinKind.home, .work, .school]) { kind in
+                            pinButton(kind: kind, pin: library.pin(kind))
+                        }
+                        ForEach(library.pins.filter { $0.kind == .custom }) { pin in
+                            pinButton(kind: .custom, pin: pin)
+                        }
+                        Button { beginPinSearch(.custom) } label: {
+                            VStack(spacing: 8) {
+                                Image(systemName: "plus").font(.largeTitle.weight(.medium))
+                                    .frame(width: 76, height: 76)
+                                    .background(OmegaMapPalette.blue.opacity(0.12), in: Circle())
+                                Text("Add").font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                                Text("Place").font(.caption).foregroundStyle(.secondary)
+                            }.frame(width: 80)
+                        }.buttonStyle(.plain).accessibilityLabel("Add pinned place")
+                    }.padding(.vertical, 2)
+                }.scrollIndicators(.hidden)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeading("Recents") { openLibrary(.recents) }
+                if library.recents.isEmpty {
+                    emptyCollection("Your recent locations and routes", detail: "Places you simulate and routes you start appear here.", symbol: "clock")
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(library.recents.prefix(3).enumerated()), id: \.element.id) { index, recent in
+                            recentRow(recent)
+                            if index < min(3, library.recents.count) - 1 { Divider().padding(.leading, 60) }
+                        }
+                    }.padding(.horizontal, 14).background(contentFill, in: RoundedRectangle(cornerRadius: 24))
+                }
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeading("Saved Routes") { openLibrary(.routes) }
+                if library.savedRoutes.isEmpty {
+                    Button { beginNewRoute() } label: {
+                        HStack(spacing: 16) {
+                            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                                .font(.title).frame(width: 52, height: 60)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Build a Route").font(.headline).foregroundStyle(.primary)
+                                Text("Keep your regular trips in one place.").font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "plus.circle.fill").font(.title2)
+                        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(contentFill, in: RoundedRectangle(cornerRadius: 24))
+                    }.buttonStyle(.plain)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 280 : 160), spacing: 12)], spacing: 12) {
+                        ForEach(library.savedRoutes.prefix(4)) { saved in savedRouteCard(saved) }
                     }
-                    ForEach(library.pins.filter { $0.kind == .custom }) { pin in
-                        pinButton(kind: .custom, pin: pin)
-                    }
-                }.padding(.horizontal, 4).padding(.vertical, 2)
-            }.scrollIndicators(.hidden)
-            Button { imports = true } label: {
-                HStack {
-                    Label("Library", systemImage: "bookmark.fill").font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Text("\(library.bookmarks.count) places").font(.subheadline).foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                }.frame(minHeight: 44)
-            }.foregroundStyle(.primary)
-        }
+                }
+            }
+        }.padding(.top, 6)
+    }
+
+    private func sectionHeading(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Text(title).font(.title2.bold()).foregroundStyle(.primary)
+                Image(systemName: "chevron.right").font(.body.weight(.semibold)).foregroundStyle(.tertiary)
+                Spacer()
+            }.frame(minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel("Show all \(title.lowercased())")
+    }
+
+    private func emptyCollection(_ title: String, detail: String, symbol: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: symbol).font(.title2).foregroundStyle(.secondary).frame(width: 30)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(contentFill, in: RoundedRectangle(cornerRadius: 24))
     }
 
     private func pinButton(kind: OmegaPinKind, pin: OmegaPinnedPlace?) -> some View {
-        Button {
+        let tint: Color = kind == .home ? OmegaMapPalette.blue : kind == .custom ? .purple : .brown
+        return Button {
             if let pin { choose(.init(title: pin.name, coordinate: pin.coordinate)) }
             else { beginPinSearch(kind) }
         } label: {
-            VStack(spacing: 6) {
-                Image(systemName: kind.symbol).font(.title3.weight(.semibold))
-                    .foregroundStyle(pin == nil ? Color.secondary : Color.accentColor)
-                    .frame(width: 52, height: 52).omegaGlass(in: Circle(), interactive: true)
-                Text(pin?.name ?? kind.title).font(.caption.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
-                if pin == nil { Text("Add").font(.caption2).foregroundStyle(.secondary) }
-            }.frame(width: 72).contentShape(Rectangle())
+            VStack(spacing: 8) {
+                Image(systemName: kind.symbol).font(.largeTitle.weight(.semibold))
+                    .foregroundStyle(pin == nil ? tint : .white)
+                    .frame(width: 76, height: 76)
+                    .background(pin == nil ? tint.opacity(0.12) : tint, in: Circle())
+                Text(pin?.name ?? kind.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                    .lineLimit(2).multilineTextAlignment(.center)
+                Text(pin.map { proximity(to: $0.coordinate) } ?? "Set Up")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }.frame(width: dynamicTypeSize.isAccessibilitySize ? 124 : 80).contentShape(Rectangle())
         }.buttonStyle(.plain)
             .accessibilityLabel(pin.map { "\($0.name), \($0.placeName)" } ?? "Add \(kind.title)")
             .contextMenu {
@@ -337,84 +459,246 @@ struct LocationSimulationView: View {
             }
     }
 
-    private var librarySheet: some View {
-        NavigationStack {
-            List {
-                Section("Pinned") {
-                    ForEach(library.pins) { pin in
-                        Button { choose(.init(title: pin.name, coordinate: pin.coordinate)); imports = false } label: {
-                            Label { VStack(alignment: .leading) { Text(pin.name); Text(pin.placeName).font(.caption).foregroundStyle(.secondary) } }
-                                icon: { Image(systemName: pin.kind.symbol) }
-                        }.foregroundStyle(.primary)
-                            .swipeActions {
-                                Button("Remove", role: .destructive) { library.removePin(pin.id) }
-                                Button("Rename") { beginRename(pin: pin) }.tint(.blue)
-                            }
-                    }
-                    Button { imports = false; beginPinSearch(.custom) } label: { Label("Add Pinned Place", systemImage: "plus") }
+    private func proximity(to point: CLLocationCoordinate2D) -> String {
+        guard let current = session.coordinate else { return "Pinned" }
+        let distance = CLLocation(latitude: current.latitude, longitude: current.longitude)
+            .distance(from: CLLocation(latitude: point.latitude, longitude: point.longitude))
+        return distance < 100 ? "Close By" : distanceLabel(distance)
+    }
+
+    private func recentRow(_ recent: OmegaRecentActivity) -> some View {
+        HStack(spacing: 8) {
+            Button { openRecent(recent) } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: recent.symbol).font(.headline).foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(recent.kind == .route ? OmegaMapPalette.blue : Color.pink, in: Circle())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(recent.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                        Text(recent.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(minHeight: 64).padding(.vertical, 6).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            Menu {
+                Button { openRecent(recent) } label: { Label(recent.kind == .route ? "Build Route" : "View Place", systemImage: recent.symbol) }
+                if recent.kind == .route {
+                    Button { nameRoute(recent.simulationStops, name: recent.title) } label: { Label("Save Route", systemImage: "bookmark") }
+                } else if let place = recent.place {
+                    Button { library.saveBookmark(place); savedFeedback = "Place saved" } label: { Label("Save Place", systemImage: "bookmark") }
                 }
-                Section("Saved Places") {
-                    if library.bookmarks.isEmpty { Text("Save a place from its place card.").foregroundStyle(.secondary) }
-                    ForEach(library.bookmarks) { bookmark in
-                        Button { choose(.init(title: bookmark.name, coordinate: bookmark.coordinate)); imports = false } label: {
-                            Label(bookmark.name, systemImage: "bookmark")
-                        }.foregroundStyle(.primary)
-                            .swipeActions(edge: .leading) {
-                                Button("Rename") { beginRename(bookmark: bookmark) }.tint(.blue)
-                            }
-                    }.onDelete(perform: library.removeBookmarks)
-                }
-                Section { Button { imports = false; filePicker = true } label: { Label("Import Coordinates", systemImage: "square.and.arrow.down") } }
-            }.navigationTitle("Omega Library")
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { imports = false } } }
+                Button(role: .destructive) { library.removeRecent(recent.id) } label: { Label("Remove from Recents", systemImage: "trash") }
+            } label: { Image(systemName: "ellipsis").font(.headline).frame(width: 44, height: 44) }
+                .accessibilityLabel("Options for \(recent.title)")
         }
     }
 
-    private var timingSheet: some View {
+    private func savedRouteCard(_ saved: OmegaSavedRoute) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                    .font(.largeTitle).foregroundStyle(OmegaMapPalette.blue).accessibilityHidden(true)
+                Spacer()
+                Menu {
+                    Button { loadRoute(saved.simulationStops) } label: { Label("Build Route", systemImage: "point.topleft.down.to.point.bottomright.curvepath") }
+                    Button { nameRoute(saved.simulationStops, name: saved.name, replacing: saved.id) } label: { Label("Rename", systemImage: "pencil") }
+                    Button(role: .destructive) { library.removeSavedRoute(saved.id) } label: { Label("Delete Route", systemImage: "trash") }
+                } label: { Image(systemName: "ellipsis.circle").font(.title3).frame(width: 44, height: 44) }
+                    .accessibilityLabel("Options for \(saved.name)")
+            }
+            Button { loadRoute(saved.simulationStops) } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(saved.name).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                    Text(saved.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                }.frame(maxWidth: .infinity, minHeight: 54, alignment: .leading).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("Build route, \(saved.name), \(saved.subtitle)")
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(contentFill, in: RoundedRectangle(cornerRadius: 24))
+    }
+
+    private func openLibrary(_ section: LibrarySection) { librarySection = section }
+    private func openRecent(_ recent: OmegaRecentActivity) {
+        librarySection = nil
+        if recent.kind == .route { loadRoute(recent.simulationStops) }
+        else if let place = recent.place { choose(place) }
+    }
+    private func loadRoute(_ values: [SimulationStop]) {
+        guard session.plannedRoute == nil, values.count >= 2 else { return }
+        cancelDraft(); librarySection = nil; selected = nil; stops = values
+        followsSimulation = false; needsStart = false; detent = .large; calculate()
+    }
+    private func beginNewRoute() {
+        guard session.plannedRoute == nil else { return }
+        cancelDraft(); librarySection = nil; selected = nil; needsStart = true
+        beginStopSearch(.startingLocation)
+    }
+    private func nameRoute(_ values: [SimulationStop], name: String? = nil, replacing id: UUID? = nil) {
+        routeToSave = values; renamingRouteID = id; editedName = name ?? values.last?.title ?? "Route"
+        namingRoute = true
+        if librarySection != nil {
+            librarySection = nil
+            Task { try? await Task.sleep(for: .milliseconds(350)); showsNameEditor = true }
+        } else { showsNameEditor = true }
+    }
+
+    private func librarySheet(_ section: LibrarySection) -> some View {
         NavigationStack {
-            Form {
-                if !editing {
-                    Section {
-                        Toggle("Leave Later", isOn: $leaveLater)
-                            .onChange(of: leaveLater) { _, enabled in
-                                if enabled, departureDate < .now { departureDate = .now.addingTimeInterval(3600) }
+            List {
+                if section == .places {
+                    Section("Pinned Places") {
+                        ForEach(library.pins) { pin in
+                            HStack(spacing: 12) {
+                                Button { choose(.init(title: pin.name, coordinate: pin.coordinate)); librarySection = nil } label: {
+                                    Label {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(pin.name).font(.headline)
+                                            Text(pin.placeName).font(.subheadline).foregroundStyle(.secondary)
+                                        }
+                                    } icon: { Image(systemName: pin.kind.symbol).foregroundStyle(OmegaMapPalette.blue) }
+                                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                }.foregroundStyle(.primary)
+                                Menu {
+                                    Button { librarySection = nil; beginPinSearch(pin.kind, replacing: pin.id) } label: { Label("Change Location", systemImage: "magnifyingglass") }
+                                    Button { beginRename(pin: pin) } label: { Label("Rename", systemImage: "pencil") }
+                                    Button(role: .destructive) { library.removePin(pin.id) } label: { Label("Remove Pin", systemImage: "pin.slash") }
+                                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                                    .accessibilityLabel("Options for \(pin.name)")
                             }
-                        if leaveLater {
-                            DatePicker("Departure", selection: $departureDate, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
                         }
-                    } header: { Text("Departure") } footer: {
-                        Text("Start the route to hold its starting location until departure. Leave Now skips the wait.")
+                        Button { librarySection = nil; beginPinSearch(.custom) } label: { Label("Add Place", systemImage: "plus") }
+                    }
+                    Section("Saved Places") {
+                        if library.bookmarks.isEmpty { Text("Save a place from its place card.").foregroundStyle(.secondary) }
+                        ForEach(library.bookmarks) { bookmark in
+                            HStack {
+                                Button { choose(.init(title: bookmark.name, coordinate: bookmark.coordinate)); librarySection = nil } label: {
+                                    Label(bookmark.name, systemImage: "bookmark.fill").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                }.foregroundStyle(.primary)
+                                Button { beginRename(bookmark: bookmark) } label: { Image(systemName: "pencil").frame(width: 44, height: 44) }
+                                    .accessibilityLabel("Rename \(bookmark.name)")
+                            }
+                        }.onDelete(perform: library.removeBookmarks)
+                    }
+                    Section { Button { librarySection = nil; filePicker = true } label: { Label("Import Coordinates", systemImage: "square.and.arrow.down") } }
+                } else if section == .recents {
+                    if library.recents.isEmpty { Text("Recent routes and simulated places will appear here.").foregroundStyle(.secondary) }
+                    ForEach(library.recents) { recent in recentRow(recent) }
+                } else {
+                    Button { beginNewRoute() } label: { Label("Build Route", systemImage: "plus") }
+                    if library.savedRoutes.isEmpty { Text("Save a route from its preview or from Recents.").foregroundStyle(.secondary) }
+                    ForEach(library.savedRoutes) { saved in savedRouteCard(saved).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0)) }
+                }
+            }.buttonStyle(.borderless).navigationTitle(section.rawValue)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { librarySection = nil } } }
+        }
+    }
+
+    private func routeOptions(active: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Divider().padding(.top, 12)
+            HStack {
+                Text("Route Options").font(.title2.bold())
+                Spacer()
+                Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary)
+            }.id("route-options").accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 14) {
+                Text(active ? "Arrival Time" : "Schedule").font(.headline)
+                Picker("Schedule", selection: Binding(get: {
+                    arriveBy ? 2 : leaveLater ? 1 : 0
+                }, set: { value in
+                    arriveBy = value == 2; leaveLater = value == 1
+                    if departureDate < .now { departureDate = .now.addingTimeInterval(3600) }
+                    if arrivalDate < .now { arrivalDate = .now.addingTimeInterval(max(3600, session.remainingDuration)) }
+                })) {
+                    Text(active ? "No Arrival Target" : "Leave Now").tag(0)
+                    if !editing && !active { Text("Leave Later").tag(1) }
+                    Text("Arrive By").tag(2)
+                }.pickerStyle(.menu).frame(minHeight: 44)
+                if leaveLater && !editing && !active {
+                    scheduleDatePicker("Departure", selection: $departureDate)
+                    Text("Start the route to hold at its starting location. Leave Now skips the departure wait.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if arriveBy {
+                    scheduleDatePicker("Arrival", selection: $arrivalDate)
+                    Text("Omega skips only the red lights it needs to and adjusts simulated speed to meet this time. Stop stays remain part of your trip.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if session.playbackState == .paused && (editing || active) {
+                        Text("Your route stays paused until you resume. Pauses or a lost connection can prevent an on-time arrival.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                Section {
-                    Toggle("Mapped Road Details", isOn: $roadMetadataAllowed)
-                    if roadMetadataAllowed {
-                        Toggle("Traffic Lights", isOn: $mappedTrafficLights)
+                if active && arrivalDraftHasChanges {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(spacing: 12) { arrivalActionButtons }
+                    } else {
+                        HStack(spacing: 12) { arrivalActionButtons }
                     }
-                    if roadMetadataAllowed && mappedTrafficLights {
-                        HStack {
-                            Text("Red-light probability")
-                            Spacer()
-                            Text("\(Int((redLightProbability * 100).rounded()))%").monospacedDigit().foregroundStyle(.secondary)
-                        }
-                        Slider(value: $redLightProbability, in: 0...1, step: 0.01)
-                            .accessibilityLabel("Red-light probability")
-                            .accessibilityValue("\(Int((redLightProbability * 100).rounded())) percent")
-                        Text("A simulated red light adds 5–90 seconds to your ETA. You can skip a light while waiting.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                } header: { Text("Traffic Lights") } footer: {
-                    Text("Sends route coordinates to overpass-api.de, with Private.coffee as a backup, for OpenStreetMap road speeds and lights. Coverage may be incomplete; missing limits use road-type estimates. Light colors are simulated.")
                 }
-                if let trafficNotice {
-                    Section { Text(trafficNotice).font(.callout).foregroundStyle(.secondary) }
+            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(contentFill, in: RoundedRectangle(cornerRadius: 24))
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Roads & Traffic Lights").font(.headline)
+                Toggle("Mapped Road Details", isOn: $roadMetadataAllowed)
+                    .onChange(of: roadMetadataAllowed) { _, _ in refreshTrafficPlanIfNeeded() }
+                if roadMetadataAllowed {
+                    Toggle("Traffic Lights", isOn: $mappedTrafficLights)
+                        .onChange(of: mappedTrafficLights) { _, _ in refreshTrafficPlanIfNeeded() }
                 }
-                Section {
-                    LabeledContent("Stay at each stop", value: "Stop options")
-                } footer: { Text("Open a stop’s menu to set how long to stay. The final destination holds until you end or restore the route.") }
-            }.navigationTitle("Route Timing").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showsTiming = false } } }
-        }.onDisappear { refreshTrafficPlanIfNeeded() }
+                if roadMetadataAllowed && mappedTrafficLights {
+                    routeOptionValue("Red-light probability", value: "\(Int((redLightProbability * 100).rounded()))%")
+                    Slider(value: $redLightProbability, in: 0...1, step: 0.01) { changing in
+                        if !changing { refreshTrafficPlanIfNeeded() }
+                    }.accessibilityLabel("Red-light probability")
+                        .accessibilityValue("\(Int((redLightProbability * 100).rounded())) percent")
+                    Text("Each simulated red light adds 5–90 seconds to your ETA. You can skip a light while waiting.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Text("Route coordinates are sent to OpenStreetMap road-data services. Missing limits use road-type estimates. Light colors are simulated.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                metadataStatus
+            }.padding(16).background(contentFill, in: RoundedRectangle(cornerRadius: 24))
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Speed").font(.headline)
+                speedControl
+            }
+            Label("Set a stay duration from each stop’s options. The destination holds until you end or restore the route.", systemImage: "mappin.and.ellipse")
+                .font(.footnote).foregroundStyle(.secondary).padding(.bottom, 12)
+        }.padding(.top, 8)
+    }
+    @ViewBuilder private func scheduleDatePicker(_ title: String, selection: Binding<Date>) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title).font(.body).fixedSize(horizontal: false, vertical: true)
+                DatePicker(title, selection: selection, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
+                    .datePickerStyle(.compact).labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            DatePicker(title, selection: selection, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
+                .datePickerStyle(.compact)
+        }
+    }
+    @ViewBuilder private func routeOptionValue(_ label: String, value: String) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(label).fixedSize(horizontal: false, vertical: true)
+                Text(value).monospacedDigit().foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack {
+                Text(label)
+                Spacer()
+                Text(value).monospacedDigit().foregroundStyle(.secondary)
+            }
+        }
+    }
+    @ViewBuilder private var arrivalActionButtons: some View {
+        Button("Cancel") { syncActiveTiming() }.frame(maxWidth: .infinity, minHeight: 44).buttonStyle(.bordered)
+        Button("Apply Arrival Time") { session.updateArrivalDate(arriveBy ? arrivalDate : nil) }
+            .frame(maxWidth: .infinity, minHeight: 44).buttonStyle(.borderedProminent)
+    }
+    private var arrivalDraftHasChanges: Bool {
+        (arriveBy ? arrivalDate : nil) != session.plannedRoute?.arrivalDate
     }
 
     private var dwellSheet: some View {
@@ -448,13 +732,19 @@ struct LocationSimulationView: View {
     }
     private func beginRename(pin: OmegaPinnedPlace? = nil, bookmark: LocationBookmark? = nil) {
         renamingPin = pin; renamingBookmark = bookmark; editedName = pin?.name ?? bookmark?.name ?? ""
-        if imports {
-            imports = false
+        if librarySection != nil {
+            librarySection = nil
             Task { try? await Task.sleep(for: .milliseconds(350)); showsNameEditor = true }
         } else { showsNameEditor = true }
     }
-    private func clearNameEditor() { renamingPin = nil; renamingBookmark = nil; customPinPlace = nil; editedName = "" }
+    private func clearNameEditor() {
+        renamingPin = nil; renamingBookmark = nil; customPinPlace = nil; editedName = ""
+        namingRoute = false; renamingRouteID = nil; routeToSave = []
+    }
     private func saveNameEdit() {
+        if namingRoute, library.saveRoute(stops: routeToSave, name: editedName, replacing: renamingRouteID) != nil {
+            savedFeedback = "Route saved"
+        }
         if let place = customPinPlace { library.savePin(kind: .custom, name: editedName, place: place) }
         if let pin = renamingPin { library.renamePin(pin.id, name: editedName) }
         if let bookmark = renamingBookmark { library.renameBookmark(bookmark.id, name: editedName) }
@@ -527,18 +817,18 @@ struct LocationSimulationView: View {
         HStack(alignment: .center, spacing: 8) {
             Menu {
                 Button { setup = true } label: { Label("Settings", systemImage: "gearshape") }
-                Button { imports = true } label: { Label("Saved Places & Import", systemImage: "bookmark") }
+                Button { openLibrary(.places) } label: { Label("Saved Places & Import", systemImage: "bookmark") }
                     .disabled(session.plannedRoute != nil || !stops.isEmpty)
                 if session.isActive || applyingRoute { restoreButton }
             } label: {
-                Image(systemName: "ellipsis").font(.title3.weight(.semibold)).frame(width: 44, height: 44)
+                Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).frame(width: 44, height: 44)
             }.omegaGlass(in: Circle(), interactive: true).accessibilityLabel("Location options")
             VStack(spacing: 3) {
                 Text(title).font(.title3.bold()).multilineTextAlignment(.center)
                 if let subtitle { Text(subtitle).font(.subheadline.weight(.medium)).foregroundStyle(.secondary) }
             }.frame(maxWidth: .infinity)
             Button(action: close) {
-                Image(systemName: "xmark").font(.title3.weight(.semibold)).frame(width: 44, height: 44)
+                Image(systemName: "xmark").font(.system(size: 20, weight: .semibold)).frame(width: 44, height: 44)
             }.foregroundStyle(.primary).omegaGlass(in: Circle(), interactive: true)
                 .accessibilityLabel("Close \(title)").disabled(applyingRoute)
         }
@@ -564,7 +854,7 @@ struct LocationSimulationView: View {
                 }
                 Spacer()
                 Menu {
-                    Button { library.saveBookmark(place) } label: { Label("Save to Library", systemImage: "bookmark") }
+                    Button { library.saveBookmark(place); savedFeedback = "Place saved" } label: { Label("Save Place", systemImage: "bookmark") }
                     ForEach(OmegaPinKind.allCases.filter { $0 != .custom }) { kind in
                         Button { library.savePin(kind: kind, place: place) } label: { Label("Pin as \(kind.title)", systemImage: kind.symbol) }
                     }
@@ -580,10 +870,17 @@ struct LocationSimulationView: View {
     }
     @ViewBuilder private func placeActions(_ place: SimulationStop) -> some View {
         Button { directions(to: place) } label: {
-            VStack(spacing: 4) { Image(systemName: "car.fill"); Text("Directions").fontWeight(.semibold) }
+            VStack(spacing: 4) { Image(systemName: "car.fill"); Text("Build Route").fontWeight(.semibold) }
                 .frame(maxWidth: .infinity, minHeight: 56)
         }.omegaGlassButton(prominent: true)
-        Button { Task { await session.setStationary(place.coordinate) } } label: {
+        Button {
+            Task {
+                if await session.setStationary(place.coordinate) {
+                    library.recordSpot(place)
+                    savedFeedback = "Location set · saved to Recents"
+                }
+            }
+        } label: {
             VStack(spacing: 4) { Image(systemName: "location.fill"); Text("Set Location").fontWeight(.semibold) }
                 .frame(maxWidth: .infinity, minHeight: 56)
         }.omegaGlassButton().disabled(session.isSendingLocation)
@@ -592,20 +889,47 @@ struct LocationSimulationView: View {
     private var routeEditor: some View {
         VStack(alignment: .leading, spacing: 14) {
             cardHeader(routeEditorTitle) {
-                if searchTarget != nil { cancelStopSearch() } else { cancelDraft() }
+                if searchTarget != nil { cancelStopSearch() }
+                else {
+                    let wasEditing = editing
+                    cancelDraft(); detent = session.plannedRoute == nil ? .height(290) : compactDetent
+                    if wasEditing, let activeRoute = session.plannedRoute { loadRoadMetadata(for: activeRoute) }
+                }
+            }
+            if editing {
+                HStack(spacing: 8) {
+                    Image(systemName: session.playbackState == .arrived ? "checkmark.circle.fill" : session.playbackState == .playing ? "play.circle.fill" : "pause.circle.fill")
+                    Text(session.playbackState == .arrived ? "Your route has finished." : session.playbackState == .playing ? "Your route keeps moving while you edit." : "Your route is paused.")
+                        .font(.footnote)
+                    Spacer(minLength: 0)
+                    if session.playbackState != .arrived {
+                        Button(session.playbackState == .playing ? "Pause" : "Resume") {
+                            if session.playbackState == .playing { session.pausePlayback() } else { session.resumePlayback() }
+                        }.font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                            .disabled(applyingRoute)
+                    }
+                }.foregroundStyle(.secondary)
             }
             if searchTarget != nil {
                 searchField.disabled(applyingRoute)
                 Text("Search for a place or tap the map.").font(.callout).foregroundStyle(.secondary)
+                if query.isEmpty {
+                    ForEach(library.pins) { pin in
+                        Button { choose(.init(title: pin.name, coordinate: pin.coordinate)) } label: {
+                            searchRow(title: pin.name, subtitle: pin.placeName, symbol: pin.kind.symbol)
+                        }.buttonStyle(.plain)
+                    }
+                }
             } else {
-                HStack {
-                    Label("Driving", systemImage: "car.fill").font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Button { toggleSpeed() } label: {
-                        Label(speedLabel, systemImage: "speedometer").font(.subheadline.weight(.semibold))
-                    }.frame(minHeight: 44).accessibilityLabel("Simulation speed, \(speedLabel)")
+                Group {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 8) { routeMode; routeSpeedButton }
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
+                    } else {
+                        HStack { routeMode; Spacer(); routeSpeedButton }
+                    }
                 }.padding(.horizontal, 12)
-                    .background(.quaternary.opacity(0.35), in: Capsule())
+                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 22))
                 VStack(spacing: 0) {
                     if needsStart {
                         Button { beginStopSearch(.startingLocation) } label: {
@@ -628,18 +952,23 @@ struct LocationSimulationView: View {
                 }.padding(.horizontal, 14).padding(.vertical, 5)
                     .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 24))
                     .disabled(applyingRoute)
-                if showsSpeed { speedControl }
-                Button { showsTiming = true } label: {
+                if let removedStop {
                     HStack {
-                        Label(leaveLater && !editing ? departureDate.formatted(date: .abbreviated, time: .shortened) : "Leave Now", systemImage: "clock")
+                        Text("Removed \(removedStop.stop.title)").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
                         Spacer()
-                        Text(roadMetadataAllowed && mappedTrafficLights ? "\(Int((redLightProbability * 100).rounded()))% red lights" : "Timing").foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        Button("Undo") { undoRemoveStop() }.font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                    }
+                }
+                Button { openTiming(forActiveRoute: false) } label: {
+                    HStack {
+                        Label(timingLabel, systemImage: "clock")
+                        Spacer()
+                        Text("Options").foregroundStyle(.secondary)
+                        Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                     }.font(.subheadline).frame(minHeight: 44)
                 }.foregroundStyle(.primary)
                 if let preview {
                     previewSummary(preview)
-                    metadataStatus
                 } else if loading {
                     HStack { ProgressView(); Text("Finding route…") }.frame(maxWidth: .infinity, minHeight: 64)
                 } else if needsStart {
@@ -649,112 +978,213 @@ struct LocationSimulationView: View {
                 } else if error != nil {
                     Button("Try Again") { calculate() }.omegaGlassButton().controlSize(.large)
                 }
+                routeOptions(active: false).disabled(applyingRoute)
             }
         }
     }
-    private func previewSummary(_ preview: PlannedRoute) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(durationMinutes(previewDuration(preview))) min").font(.title2.bold())
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    Text("\(previewArrival(preview, at: context.date)) ETA · \(distanceLabel(preview.distance))")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                Text((session.useRoadSpeeds ? (preview.speedSegments.isEmpty ? "Fallback \(speedLabel)" : "Road speeds") : "At \(speedLabel)") + (preview.plannedDelaySeconds > 0 ? " · \(waitLabel(preview.plannedDelaySeconds)) stops" : ""))
-                    .font(.caption).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            Button {
-                applyingRoute = true; searchFocused = false
-                Task {
-                    var scheduledRoute = preview
-                    scheduledRoute.departureDate = !editing && leaveLater ? max(Date.now, departureDate) : nil
-                    let didStart = await session.play(scheduledRoute, preservingCurrentWait: editing)
-                    applyingRoute = false
-                    if didStart {
-                        if let enriched = self.preview, enriched.id == scheduledRoute.id { _ = session.applyRoadMetadata(enriched) }
-                        cancelDraft(preserveRoadMetadata: true); showsSpeed = false; followsSimulation = true
-                        if let point = session.coordinate { center(on: point) }
-                        detent = compactDetent
-                    }
-                }
-            } label: {
-                VStack(spacing: 2) {
-                    if applyingRoute { ProgressView().tint(.white) }
-                    Text(editing ? "Apply" : leaveLater ? "Start" : "GO").font(.title3.bold())
-                    if editing { Text("& Resume").font(.caption2.weight(.semibold)) }
-                }.frame(minWidth: 56, minHeight: 56)
-            }.buttonBorderShape(.roundedRectangle(radius: 20))
-                .omegaGlassButton(prominent: true).tint(.green).disabled(applyingRoute)
-                .accessibilityLabel(editing ? "Apply and resume route" : leaveLater ? "Start scheduled route" : "Go, start simulation")
-        }.padding(14).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 24))
+    private var routeMode: some View {
+        Label {
+            Text("Driving").font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "car.fill").font(.system(size: 20, weight: .semibold)).accessibilityHidden(true)
+        }
     }
+    private var routeSpeedButton: some View {
+        Button { toggleSpeed() } label: {
+            Label {
+                Text(speedLabel).font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "speedometer").font(.system(size: 20, weight: .semibold)).accessibilityHidden(true)
+            }
+        }.frame(minHeight: 44).accessibilityLabel("Simulation speed, \(speedLabel)")
+    }
+    private func previewSummary(_ preview: PlannedRoute) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(durationMinutes(previewDuration(preview))) min estimate").font(.title.bold())
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        Text("\(previewArrival(preview, at: context.date)) \(arriveBy ? "arrival" : "ETA") · \(distanceLabel(preview.distance))")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Text((session.useRoadSpeeds ? (preview.speedSegments.isEmpty ? "Fallback \(speedLabel)" : "Road speeds") : "At \(speedLabel)") + (preview.plannedDelaySeconds > 0 ? " · \(waitLabel(preview.plannedDelaySeconds)) stops" : ""))
+                        .font(.footnote).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Button { nameRoute(stops) } label: { Image(systemName: "bookmark").font(.title3).frame(width: 44, height: 44) }
+                    .accessibilityLabel("Save this route")
+            }
+        }.padding(16).background(contentFill, in: RoundedRectangle(cornerRadius: 24))
+    }
+
+    @ViewBuilder private var draftActionBar: some View {
+        if let preview, !tripIsVisible, searchTarget == nil, !stops.isEmpty || editing {
+            VStack(spacing: 8) {
+                if editing {
+                    Text("The final ETA is recalculated from your live position when you apply.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else if arriveBy && !previewTiming(preview).feasible {
+                    Label("Choose a later arrival or shorten your stays.", systemImage: "exclamationmark.triangle")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Button { applyPreview(preview) } label: {
+                    HStack(spacing: 8) {
+                        if applyingRoute { ProgressView().tint(.white) }
+                        else { Image(systemName: editing ? "checkmark" : "play.fill") }
+                        Text(applyingRoute ? "Applying…" : editing ? "Apply Changes" : leaveLater ? "Start Scheduled Route" : "Go")
+                            .font(.headline)
+                    }.frame(maxWidth: .infinity, minHeight: 44)
+                }.buttonBorderShape(.roundedRectangle(radius: 18))
+                    .omegaGlassButton(prominent: true).tint(OmegaMapPalette.blue)
+                    .disabled(applyingRoute || (!editing && arriveBy && !previewTiming(preview).feasible))
+                    .accessibilityLabel(editing ? "Apply route changes and keep playback state" : leaveLater ? "Start scheduled route" : "Go, start simulation")
+            }.padding(.horizontal, 16).padding(.vertical, 10)
+                .background(.regularMaterial)
+        }
+    }
+
+    private func applyPreview(_ preview: PlannedRoute) {
+        guard !applyingRoute else { return }
+        guard editing || !arriveBy || previewTiming(preview).feasible else {
+            error = "Choose a later arrival time or shorten your stays before starting."
+            return
+        }
+        applyingRoute = true; searchFocused = false
+        let wasEditing = editing
+        let originalID = editingRouteID
+        Task {
+            var scheduledRoute = preview
+            scheduledRoute.departureDate = !wasEditing && leaveLater ? max(Date.now, departureDate) : nil
+            scheduledRoute.arrivalDate = arriveBy ? arrivalDate : nil
+            let didStart: Bool
+            if wasEditing, let originalID {
+                didStart = await session.applyEditedRoute(scheduledRoute, replacingRouteID: originalID)
+            } else { didStart = await session.play(scheduledRoute) }
+            applyingRoute = false
+            if didStart {
+                library.recordRoute(session.plannedRoute?.stops ?? scheduledRoute.stops)
+                if !wasEditing, let enriched = self.preview, enriched.id == scheduledRoute.id { _ = session.applyRoadMetadata(enriched) }
+                cancelDraft(preserveRoadMetadata: !wasEditing); followsSimulation = true
+                if wasEditing, let currentRoute = session.plannedRoute { loadRoadMetadata(for: currentRoute) }
+                if let point = session.coordinate { center(on: point) }
+                detent = compactDetent
+            }
+        }
+    }
+
     private func stopRow(_ stop: SimulationStop, at index: Int) -> some View {
         let isStart = !needsStart && index == 0
         let firstMovableIndex = needsStart ? 0 : 1
-        return HStack(spacing: 12) {
-            Image(systemName: isStart ? "location.circle.fill" : "mappin.circle.fill")
-                .font(.title2).foregroundStyle(isStart ? .blue : .orange).accessibilityHidden(true)
-            Button { beginStopSearch(.replace(stop.id)) } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(stop.title).fontWeight(.medium)
-                    if !isStart, index < stops.count - 1 {
-                        Text(stop.dwellSeconds > 0 ? "Stay \(waitLabel(stop.dwellSeconds))" : "No stop delay")
-                            .font(.caption).foregroundStyle(.secondary)
+        return Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 12) {
+                        stopSymbol(isStart: isStart, index: index).padding(.top, 7)
+                        stopTitle(stop, isStart: isStart, index: index)
                     }
-                }.frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-            }.foregroundStyle(.primary).disabled(editing && isStart)
-                .accessibilityLabel(isStart ? "Starting location: \(stop.title)" : "Replace stop: \(stop.title)")
-            if !isStart {
-                Menu {
-                    if index < stops.count - 1 {
-                        Button {
-                            dwellStopID = stop.id; dwellMinutes = stop.dwellSeconds / 60
-                        } label: { Label("Stay Duration", systemImage: "clock") }
+                    if !isStart {
+                        HStack(spacing: 16) {
+                            stopControls(stop, index: index, firstMovableIndex: firstMovableIndex)
+                            Spacer(minLength: 0)
+                        }.padding(.leading, 42)
                     }
-                    Button { beginStopSearch(.replace(stop.id)) } label: { Label("Replace Stop", systemImage: "magnifyingglass") }
-                    if index > firstMovableIndex {
-                        Button { stops.swapAt(index, index - 1); invalidatePreview() } label: { Label("Move Up", systemImage: "arrow.up") }
-                    }
-                    if index < stops.count - 1 {
-                        Button { stops.swapAt(index, index + 1); invalidatePreview() } label: { Label("Move Down", systemImage: "arrow.down") }
-                    }
-                    Button(role: .destructive) {
-                        if searchTarget == .replace(stop.id) { cancelStopSearch() }
-                        stops.remove(at: index); invalidatePreview()
-                    } label: { Label("Remove Stop", systemImage: "minus.circle") }
-                } label: { Image(systemName: "line.3.horizontal").foregroundStyle(.secondary).frame(width: 44, height: 44) }
-                    .accessibilityLabel("Options for \(stop.title)")
+                }.padding(.vertical, 12)
+            } else {
+                HStack(spacing: 8) {
+                    stopSymbol(isStart: isStart, index: index)
+                    stopTitle(stop, isStart: isStart, index: index)
+                    if !isStart { stopControls(stop, index: index, firstMovableIndex: firstMovableIndex) }
+                }
             }
         }
         .draggable(isStart ? "" : stop.id.uuidString)
         .dropDestination(for: String.self) { items, _ in
             guard !applyingRoute, index >= firstMovableIndex, let value = items.first,
-                  let source = stops.firstIndex(where: { $0.id.uuidString == value }), source >= firstMovableIndex else { return false }
+                  let source = stops.firstIndex(where: { $0.id.uuidString == value }), source >= firstMovableIndex,
+                  source != index else { return false }
             let moved = stops.remove(at: source)
             stops.insert(moved, at: min(index, stops.count))
-            invalidatePreview()
+            removedStop = nil; invalidatePreview(preservingSheet: true)
             return true
         }
     }
-    private func toggleSpeed() {
-        showsSpeed.toggle()
-        detent = showsSpeed ? (tripIsVisible ? speedDetent : .large) : (tripIsVisible ? compactDetent : previewDetent)
+    private func stopSymbol(isStart: Bool, index: Int) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: isStart ? "location.circle.fill" : index == stops.count - 1 ? "mappin.circle.fill" : "circle.fill")
+                .font(.system(size: isStart || index == stops.count - 1 ? 24 : 12))
+                .foregroundStyle(isStart ? OmegaMapPalette.blue : Color.secondary)
+            if index < stops.count - 1 { Rectangle().fill(.tertiary).frame(width: 2, height: 16) }
+        }.frame(width: 30).accessibilityHidden(true)
     }
+    private func stopTitle(_ stop: SimulationStop, isStart: Bool, index: Int) -> some View {
+        Button { beginStopSearch(.replace(stop.id)) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(stop.title).font(.body.weight(.medium))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if isStart {
+                    Text(editing ? "Current simulated location" : "Starting location").font(.footnote).foregroundStyle(.secondary)
+                } else if index < stops.count - 1 {
+                    Text(stop.dwellSeconds > 0 ? "Stay \(waitLabel(stop.dwellSeconds))" : "No stop delay")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else { Text("Destination").font(.footnote).foregroundStyle(.secondary) }
+            }.frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+                .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+        }.foregroundStyle(.primary).disabled(editing && isStart)
+            .accessibilityLabel(isStart ? "Starting location: \(stop.title)" : "Replace stop: \(stop.title)")
+    }
+    @ViewBuilder private func stopControls(_ stop: SimulationStop, index: Int, firstMovableIndex: Int) -> some View {
+        Menu {
+            if index < stops.count - 1 {
+                Button { dwellStopID = stop.id; dwellMinutes = stop.dwellSeconds / 60 } label: { Label("Stay Duration", systemImage: "clock") }
+            }
+            Button { beginStopSearch(.replace(stop.id)) } label: { Label("Replace Stop", systemImage: "magnifyingglass") }
+            if index > firstMovableIndex {
+                Button { moveStop(stop.id, by: -1) } label: { Label("Move Up", systemImage: "arrow.up") }
+            }
+            if index < stops.count - 1 {
+                Button { moveStop(stop.id, by: 1) } label: { Label("Move Down", systemImage: "arrow.down") }
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal").font(.system(size: 20, weight: .medium))
+                .foregroundStyle(.secondary).frame(width: 44, height: 44)
+        }.accessibilityLabel("Reorder and options for \(stop.title)")
+        Button(role: .destructive) { removeStop(stop.id) } label: {
+            Image(systemName: "minus.circle.fill").font(.system(size: 22)).frame(width: 44, height: 44)
+        }.buttonStyle(.plain).foregroundStyle(.red).accessibilityLabel("Remove \(stop.title)")
+    }
+
+    private func removeStop(_ id: UUID) {
+        guard !applyingRoute, let index = stops.firstIndex(where: { $0.id == id }), needsStart || index > 0 else { return }
+        if searchTarget == .replace(id) { cancelStopSearch() }
+        removedStop = (stops.remove(at: index), index)
+        invalidatePreview(preservingSheet: true)
+    }
+    private func undoRemoveStop() {
+        guard let removedStop, !applyingRoute else { return }
+        stops.insert(removedStop.stop, at: min(removedStop.index, stops.count))
+        self.removedStop = nil; invalidatePreview(preservingSheet: true)
+    }
+    private func moveStop(_ id: UUID, by offset: Int) {
+        guard !applyingRoute, let index = stops.firstIndex(where: { $0.id == id }) else { return }
+        let destination = index + offset
+        guard destination >= (needsStart ? 0 : 1), stops.indices.contains(destination) else { return }
+        stops.swapAt(index, destination); removedStop = nil; invalidatePreview(preservingSheet: true)
+    }
+
+    private func toggleSpeed() { openTiming(forActiveRoute: tripIsVisible) }
     private var speedControl: some View {
         VStack(spacing: 10) {
             Picker("Speed mode", selection: $session.useRoadSpeeds) {
                 Text("Road Limits").tag(true)
                 Text("Constant").tag(false)
             }.pickerStyle(.segmented).padding(.top, 12)
-            HStack {
-                Text(session.useRoadSpeeds ? "Fallback speed" : "Simulation speed").font(.subheadline.weight(.semibold)); Spacer()
-                Text("\(Int(speed.wrappedValue.rounded())) \(units.speedSymbol)").font(.subheadline).monospacedDigit()
-            }
+            routeOptionValue(session.useRoadSpeeds ? "Fallback speed" : "Simulation speed", value: "\(Int(speed.wrappedValue.rounded())) \(units.speedSymbol)")
+                .font(.subheadline.weight(.semibold))
             Slider(value: speed, in: speedRange, step: 1).accessibilityLabel("Simulation speed in \(units.speedSymbol)")
             HStack { Text("1 \(units.speedSymbol)"); Spacer(); Text("\(Int(speedRange.upperBound)) \(units.speedSymbol)") }
                 .font(.caption).foregroundStyle(.secondary)
             if session.useRoadSpeeds {
-                Text(roadMetadataAllowed ? "Uses mapped limits and road-type estimates. Fallback applies while details load or are unavailable." : "Enable Mapped Road Details in Route Timing to use road speeds. Fallback applies until then.")
+                Text(roadMetadataAllowed ? "Uses mapped limits and road-type estimates. Fallback applies while details load or are unavailable." : "Enable Mapped Road Details below in Route Options to use road speeds. Fallback applies until then.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }.padding(.horizontal, 14).padding(.bottom, 10)
@@ -774,10 +1204,32 @@ struct LocationSimulationView: View {
     }
     private var tripCard: some View {
         VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 8) {
-                tripMetric(session.playbackState == .paused ? "—" : arrivalTime(duration: session.remainingDuration), label: "arrival")
-                tripMetric("\(durationMinutes(session.remainingDuration))", label: "min")
-                tripMetric(units.distance(session.remainingDistance).value, label: units.distance(session.remainingDistance).unit)
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 20) { tripMetrics }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 8) { tripMetrics }
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) { tripMetrics }
+                }
+            }
+            if let target = session.plannedRoute?.arrivalDate {
+                Button { openTiming(forActiveRoute: true) } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "clock.badge.checkmark")
+                        Text("Arrive by \(target.formatted(date: .omitted, time: .shortened))").font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 0)
+                        Image(systemName: "pencil").font(.caption)
+                    }.frame(minHeight: 44)
+                }.accessibilityLabel("Change arrival time, \(target.formatted(date: .omitted, time: .shortened))")
+                if let adjustment = session.arrivalAdjustment {
+                    if let warning = adjustment.warning {
+                        Label(warning, systemImage: "exclamationmark.triangle")
+                            .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    } else if adjustment.skippedTrafficLightCount > 0 || adjustment.speedMultiplier > 1.01 {
+                        Text("Pace adjusted\(adjustment.skippedTrafficLightCount > 0 ? " · \(adjustment.skippedTrafficLightCount) lights made green" : "")")
+                            .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
             if let wait = session.currentWait {
                 HStack {
@@ -786,34 +1238,60 @@ struct LocationSimulationView: View {
                     Button(waitButtonTitle) { session.skipCurrentWait() }
                         .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                         .disabled(!session.canSkipWait || concludingActionID != nil)
-                }.padding(.horizontal, 12).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 18))
+                }.padding(.horizontal, 12).background(contentFill, in: RoundedRectangle(cornerRadius: 18))
             }
-            HStack(spacing: 8) {
-                Button {
-                    guard !preparingEdit else { return }
-                    if session.playbackState == .playing { session.pausePlayback() } else { session.resumePlayback() }
-                } label: {
-                    Label(session.playbackState == .playing ? "Pause" : "Resume", systemImage: session.playbackState == .playing ? "pause.fill" : "play.fill")
-                        .font(.subheadline.weight(.semibold)).frame(minHeight: 36)
-                }.omegaGlassButton(prominent: true).disabled(session.playbackState == .arrived || preparingEdit || concludingActionID != nil)
-                Button { toggleSpeed() } label: {
-                    Text(speedLabel).font(.subheadline.weight(.semibold)).frame(minHeight: 36)
-                }.omegaGlassButton().accessibilityLabel("Change simulation speed, \(speedLabel)")
-                Menu {
-                    Button { editRoute() } label: { Label("Edit Route", systemImage: "pencil") }.disabled(preparingEdit || concludingActionID != nil)
-                    Button(role: .destructive) { concludeRoute(restoring: false) } label: { Label("End Route", systemImage: "stop.fill") }
-                    restoreButton
-                    Button { setup = true } label: { Label("Settings", systemImage: "gearshape") }
-                } label: { Image(systemName: "ellipsis").font(.title3).frame(width: 36, height: 36) }
-                    .omegaGlassButton().accessibilityLabel("Route controls: edit, end, restore and settings")
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 12) { tripActions }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { tripActions }
+                    VStack(spacing: 8) { tripActions }
+                }
             }
-            if showsSpeed { speedControl; metadataStatus }
-            if preparingEdit { ProgressView("Pausing at accepted location…").font(.caption) }
+            routeOptions(active: true)
         }
+    }
+    @ViewBuilder private var tripMetrics: some View {
+        tripMetric(session.playbackState == .paused ? "—" : arrivalTime(duration: session.remainingDuration), label: "arrival")
+        tripMetric("\(durationMinutes(session.remainingDuration))", label: "min")
+        tripMetric(units.distance(session.remainingDistance).value, label: units.distance(session.remainingDistance).unit)
+        tripMetric(currentSpeedLabel, label: units.speedSymbol, accessibility: "Current speed, \(currentSpeedLabel) \(units.speedSymbol)")
+    }
+    @ViewBuilder private var tripActions: some View {
+        Button {
+            if session.playbackState == .playing { session.pausePlayback() } else { session.resumePlayback() }
+        } label: {
+            Label(session.playbackState == .arrived ? "Arrived" : session.playbackState == .playing ? "Pause" : "Resume", systemImage: session.playbackState == .arrived ? "checkmark.circle.fill" : session.playbackState == .playing ? "pause.fill" : "play.fill")
+                .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+        }.omegaGlassButton(prominent: true).disabled(session.playbackState == .arrived || concludingActionID != nil)
+        Button { editRoute() } label: {
+            Label("Edit Route", systemImage: "pencil").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+        }.omegaGlassButton().disabled(concludingActionID != nil)
+        Menu {
+            Button { openTiming(forActiveRoute: true) } label: { Label("Change Arrival Time", systemImage: "clock") }
+            Button { toggleSpeed() } label: { Label("Speed Settings", systemImage: "speedometer") }
+            Button { if let route = session.plannedRoute { nameRoute(route.stops) } } label: { Label("Save Route", systemImage: "bookmark") }
+            Button(role: .destructive) { concludeRoute(restoring: false) } label: { Label("End Route", systemImage: "stop.fill") }
+            restoreButton
+            Button { setup = true } label: { Label("Settings", systemImage: "gearshape") }
+        } label: { Image(systemName: "ellipsis").font(.title3).frame(width: 44, height: 44) }
+            .omegaGlassButton().accessibilityLabel("Route options")
+    }
+    private func openTiming(forActiveRoute: Bool) {
+        if forActiveRoute && !arrivalDraftHasChanges { syncActiveTiming() }
+        detent = .large; requestSheetScroll(.options)
+    }
+    private func requestSheetScroll(_ target: SheetScrollTarget) {
+        sheetScrollTarget = target
+        sheetScrollRequest += 1
+    }
+    private func syncActiveTiming() {
+        arriveBy = session.plannedRoute?.arrivalDate != nil
+        arrivalDate = session.plannedRoute?.arrivalDate ?? .now.addingTimeInterval(max(60, session.remainingDuration))
+        leaveLater = false
     }
     private func concludeRoute(restoring: Bool) {
         let id = UUID(); concludingActionID = id
-        editRequestID = UUID(); preparingEdit = false; showsSpeed = false
         if !restoring { cancelDraft() }
         Task {
             if restoring { await session.restoreRealLocation() }
@@ -825,24 +1303,22 @@ struct LocationSimulationView: View {
         }
     }
     private func editRoute() {
-        guard concludingActionID == nil else { return }
-        let id = UUID(); editRequestID = id
-        preparingEdit = true; followsSimulation = false
-        Task {
-            let point = await session.pauseAndWait()
-            guard editRequestID == id else { return }
-            preparingEdit = false
-            guard let point, session.plannedRoute != nil else { return }
-            stops = [SimulationStop(title: "Simulated Location", coordinate: point)] + session.remainingStops
-            editing = true; preview = nil; needsStart = false; showsSpeed = false; detent = .large
-            cancelStopSearch(); invalidatePreview()
-        }
+        guard concludingActionID == nil, let point = session.coordinate, let activeRoute = session.plannedRoute else { return }
+        followsSimulation = false; editingRouteID = activeRoute.id
+        stops = [SimulationStop(title: "Simulated Location", coordinate: point)] + session.remainingStops
+        arriveBy = activeRoute.arrivalDate != nil
+        arrivalDate = activeRoute.arrivalDate ?? .now.addingTimeInterval(max(60, session.remainingDuration))
+        editing = true; preview = nil; needsStart = false; detent = .large
+        removedStop = nil; cancelStopSearch(); invalidatePreview()
+        requestSheetScroll(.top)
     }
-    private func tripMetric(_ value: String, label: String) -> some View {
+    private func tripMetric(_ value: String, label: String, accessibility: String? = nil) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.title2.bold()).monospacedDigit().minimumScaleFactor(0.7).lineLimit(1)
+            Text(value).font(.title2.bold()).monospacedDigit()
+                .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
             Text(label).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity).accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibility ?? "\(value) \(label)")
     }
     private var playbackDestination: String {
         if let wait = session.currentWait {
@@ -863,11 +1339,33 @@ struct LocationSimulationView: View {
     private func arrivalTime(duration: Double, at now: Date = .now) -> String {
         now.addingTimeInterval(max(0, duration)).formatted(date: .omitted, time: .shortened)
     }
-    private func previewDuration(_ route: PlannedRoute) -> TimeInterval {
-        route.duration(atSpeed: session.speedMetersPerSecond, useRoadSpeeds: session.useRoadSpeeds)
-            + (editing ? session.currentWait?.remainingSeconds ?? 0 : 0)
+    private func previewDuration(_ route: PlannedRoute) -> TimeInterval { previewTiming(route).duration }
+    private func previewTiming(_ route: PlannedRoute, at now: Date = .now) -> (duration: TimeInterval, feasible: Bool) {
+        let retained = editing ? session.currentWait : nil
+        let retainedWait = retained?.remainingSeconds ?? 0
+        guard arriveBy else {
+            return (route.duration(atSpeed: session.speedMetersPerSecond, useRoadSpeeds: session.useRoadSpeeds) + retainedWait, true)
+        }
+        let profile = RouteSpeedProfile(segments: session.useRoadSpeeds ? route.speedSegments : [], length: route.distance)
+        let travel: (Double) -> TimeInterval = { multiplier in
+            profile.duration(from: 0, to: route.distance, fallbackSpeed: session.speedMetersPerSecond,
+                             multiplier: multiplier, maximumSpeed: ArrivalAdjustment.maximumSpeedMetersPerSecond)
+        }
+        let events = route.timingEvents
+        var lights = events.filter { $0.trafficLightID != nil }.map(\.seconds)
+        let retainedRed = retained?.kind == .trafficLight
+        if retainedRed { lights.append(retainedWait) }
+        let fixedWait = events.filter { $0.trafficLightID == nil }.reduce(retainedRed ? 0 : retainedWait) { $0 + $1.seconds }
+        // Initial estimate reserves a playback tick and a modest bridge response.
+        // The engine replaces this estimate with measured latency when starting.
+        let initialReserve: TimeInterval = !editing && route.distance > 0 ? 1.5 : 0
+        let plan = ArrivalTimingPlan(availableSeconds: arrivalDate.timeIntervalSince(now) - initialReserve, fixedWaitSeconds: fixedWait,
+                                    redLightSeconds: lights, travelDuration: travel)
+        let lightWait = lights.enumerated().filter { !plan.skippedLightIndices.contains($0.offset) }.reduce(0) { $0 + $1.element }
+        return (travel(plan.speedMultiplier) + fixedWait + lightWait + initialReserve, plan.isFeasible)
     }
     private func previewArrival(_ preview: PlannedRoute, at now: Date) -> String {
+        if arriveBy { return arrivalDate.formatted(date: .omitted, time: .shortened) }
         let departure = !editing && leaveLater ? max(now, departureDate) : now
         return arrivalTime(duration: previewDuration(preview), at: departure)
     }
@@ -895,12 +1393,12 @@ struct LocationSimulationView: View {
                 stops.append(stop)
             }
             cancelStopSearch()
-            invalidatePreview()
+            invalidatePreview(preservingSheet: true)
         } else {
             cancelStopSearch()
             selected = stop; detent = .height(290)
         }
-        followsSimulation = false
+        savedFeedback = nil; followsSimulation = false
         camera = .region(MKCoordinateRegion(center: stop.coordinate, latitudinalMeters: 2500, longitudinalMeters: 2500))
     }
     private func directions(to stop: SimulationStop) {
@@ -930,17 +1428,22 @@ struct LocationSimulationView: View {
             trafficNotice = nil; metadataFailed = false
         }
         routeTask?.cancel(); planner.cancel(); requestID = UUID(); loading = false
-        editing = false; stops = []; preview = nil; needsStart = false; error = nil; showsSpeed = false; leaveLater = false
+        editing = false; editingRouteID = nil; stops = []; preview = nil; needsStart = false; error = nil
+        hasPresentedRoutePreview = false
+        leaveLater = false; arriveBy = false; removedStop = nil
         cancelStopSearch()
     }
     private func center(on point: CLLocationCoordinate2D) {
         if tripIsVisible {
-            camera = .camera(MapCamera(centerCoordinate: point, distance: 1100, heading: simulatedHeading, pitch: 48))
+            camera = .camera(MapCamera(centerCoordinate: point, distance: 1100, heading: reduceMotion ? 0 : simulatedHeading, pitch: reduceMotion ? 0 : 48))
         } else {
             camera = .region(MKCoordinateRegion(center: point, latitudinalMeters: 1600, longitudinalMeters: 1600))
         }
     }
-    private func invalidatePreview() {
+    private func invalidatePreview(preservingSheet: Bool = false) {
+        // A preview can already be visible after importing/restoring a draft.
+        // Treat explicit stop mutations as edits even if its first request is pending.
+        if preservingSheet || preview != nil { hasPresentedRoutePreview = true }
         routeTask?.cancel(); planner.cancel(); requestID = UUID(); preview = nil; loading = false
         error = nil
         if stops.count >= 2, !needsStart { calculate() }
@@ -950,6 +1453,8 @@ struct LocationSimulationView: View {
         routeTask?.cancel(); planner.cancel()
         let id = UUID(); requestID = id; loading = true; error = nil
         let requestedStops = stops
+        let initialReveal = !hasPresentedRoutePreview
+        let requestedDetent = detent
         routeTask = Task { @MainActor in
             do {
                 var result = try await planner.calculate(stops: requestedStops)
@@ -959,12 +1464,16 @@ struct LocationSimulationView: View {
                 loadRoadMetadata(for: result)
                 error = nil
                 fitRouteAboveCard(result)
-                if !editing { detent = previewDetent }
+                // Recalculating stops must not collapse or reposition an expanded editor.
+                // Only the first reveal may choose a compact preview, and only if
+                // the user has not changed the sheet size while the route loaded.
+                if !editing, initialReveal, detent == requestedDetent { detent = previewDetent }
+                hasPresentedRoutePreview = true
             } catch {
                 guard requestID == id else { return }; loading = false
                 if !Task.isCancelled {
                     self.error = editing
-                        ? "Could not calculate route. Your original route remains paused. Try again or change the stops. \(error.localizedDescription)"
+                        ? "Could not calculate route. Your original route is unchanged. Try again or change the stops. \(error.localizedDescription)"
                         : "Could not calculate route. Try again or change the stops. \(error.localizedDescription)"
                 }
             }
@@ -985,13 +1494,20 @@ struct LocationSimulationView: View {
         }
     }
     private func refreshTrafficPlanIfNeeded() {
-        guard let preview else { return }
+        guard var route = preview ?? session.plannedRoute else { return }
         if !roadMetadataAllowed {
-            var route = preview; route.trafficLights = []; route.speedSegments = []; self.preview = route
+            route.trafficLights = []; route.speedSegments = []
+            if preview?.id == route.id { preview = route }
+            if session.plannedRoute?.id == route.id { _ = session.applyRoadMetadata(route) }
             metadataTask?.cancel(); metadataRequestID = UUID(); metadataLoading = false; metadataFailed = false
             trafficNotice = nil; plannedTrafficEnabled = false; plannedTrafficProbability = nil
-        } else if mappedTrafficLights != plannedTrafficEnabled || redLightProbability != plannedTrafficProbability || preview.speedSegments.isEmpty {
-            loadRoadMetadata(for: preview)
+        } else if mappedTrafficLights != plannedTrafficEnabled || redLightProbability != plannedTrafficProbability || route.speedSegments.isEmpty {
+            if !mappedTrafficLights {
+                route.trafficLights = []
+                if preview?.id == route.id { preview = route }
+                if session.plannedRoute?.id == route.id { _ = session.applyRoadMetadata(route) }
+            }
+            loadRoadMetadata(for: route)
         }
     }
     private func loadRoadMetadata(for route: PlannedRoute) {
@@ -1026,7 +1542,7 @@ struct LocationSimulationView: View {
     private func applyRoadDetails(_ result: TrafficLightPlanResult, to routeID: UUID) {
         var updated = result.route
         if let current = preview, current.id == routeID {
-            updated.stops = current.stops; updated.departureDate = current.departureDate
+            updated.stops = current.stops; updated.departureDate = current.departureDate; updated.arrivalDate = current.arrivalDate
             preview = updated
         }
         if session.plannedRoute?.id == routeID { _ = session.applyRoadMetadata(updated) }
@@ -1046,6 +1562,42 @@ struct LocationSimulationView: View {
             width: width, height: height))
     }
 
+}
+
+private enum OmegaMapPalette {
+    // Deliberately keep Omega's deeper blue across iOS system tint revisions.
+    static let blue = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 10.0 / 255, green: 132.0 / 255, blue: 1, alpha: 1)
+            : UIColor(red: 0, green: 122.0 / 255, blue: 1, alpha: 1)
+    })
+}
+
+private struct OmegaHeadingDot: View {
+    let heading: Double
+    var body: some View {
+        ZStack {
+            ZStack {
+                OmegaHeadingCone()
+                    .fill(LinearGradient(colors: [OmegaMapPalette.blue.opacity(0.02), OmegaMapPalette.blue.opacity(0.42)], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 66, height: 52).offset(y: -24)
+            }.frame(width: 76, height: 76).rotationEffect(.degrees(heading))
+            Circle().fill(OmegaMapPalette.blue.opacity(0.12)).frame(width: 42, height: 42)
+            Circle().fill(OmegaMapPalette.blue).frame(width: 24, height: 24)
+                .overlay(Circle().stroke(.white, lineWidth: 4))
+                .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+        }.frame(width: 76, height: 76)
+    }
+}
+private struct OmegaHeadingCone: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + 10))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + 10), control: CGPoint(x: rect.midX, y: rect.minY - 9))
+        path.closeSubpath()
+        return path
+    }
 }
 
 // Native system glass adapts to light/dark appearance and accessibility settings.
