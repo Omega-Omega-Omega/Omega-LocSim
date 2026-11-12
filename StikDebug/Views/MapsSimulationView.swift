@@ -34,6 +34,7 @@ struct LocationSimulationView: View {
     @State private var arrivalDate = Date.now.addingTimeInterval(3600)
     @State private var editingRouteID: UUID?
     @State private var sheetScrollRequest = 0
+    @State private var sheetScrollTask: Task<Void, Never>?
     @State private var sheetScrollTarget = SheetScrollTarget.top
     @State private var librarySection: LibrarySection?
     @State private var namingRoute = false
@@ -60,6 +61,7 @@ struct LocationSimulationView: View {
     @State private var previousAcceptedCoordinate: CLLocationCoordinate2D?
     @State private var simulatedHeading = 0.0
     @State private var visibleMapHeading = 0.0
+    @State private var lastFollowUpdate: Date?
     @State private var mapSize = CGSize(width: 430, height: 932)
     @FocusState private var searchFocused: Bool
     @AppStorage("routeSpeedUsesMPH") private var usesMPH = true
@@ -96,6 +98,30 @@ struct LocationSimulationView: View {
         case startingLocation
         case replace(UUID)
         case addStop
+    }
+
+    private enum SheetContentIdentity: Hashable {
+        case browse, place(UUID), editor, trip
+    }
+
+    // Animate only user-visible state boundaries. Playback coordinates and road
+    // metadata continue to update independently of the sheet's presentation.
+    private var sheetContentIdentity: SheetContentIdentity {
+        if tripIsVisible { return .trip }
+        if !stops.isEmpty || editing || needsStart { return .editor }
+        if let selected { return .place(selected.id) }
+        return .browse
+    }
+    private var panelMotion: Animation { OmegaMotion.panel(reduceMotion: reduceMotion) }
+    private var detailMotion: Animation { OmegaMotion.detail(reduceMotion: reduceMotion) }
+    private var fadeMotion: Animation { OmegaMotion.fade(reduceMotion: reduceMotion) }
+    private var panelTransition: AnyTransition {
+        reduceMotion ? .opacity : .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 14)),
+            removal: .opacity.combined(with: .offset(y: -8)))
+    }
+    private var rowTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .offset(x: 12))
     }
 
     private var route: PlannedRoute? { editing ? (preview ?? session.plannedRoute) : (session.plannedRoute ?? preview) }
@@ -176,14 +202,14 @@ struct LocationSimulationView: View {
                     Annotation("Simulated location", coordinate: point) {
                         OmegaHeadingDot(heading: simulatedHeading - visibleMapHeading)
                             .accessibilityLabel("Simulated location")
-                            .accessibilityValue("Heading \(Int((simulatedHeading + 360).truncatingRemainder(dividingBy: 360))) degrees")
+                            .accessibilityValue("Heading \(Int((simulatedHeading.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360))) degrees")
                     }.annotationTitles(.hidden)
                 }
             }
             .mapStyle(.standard(elevation: .realistic))
             .mapControls { MapCompass(); MapScaleView() }
             .onMapCameraChange(frequency: .continuous) { context in
-                visibleMapHeading = context.camera.heading
+                visibleMapHeading = continuousHeading(context.camera.heading, from: visibleMapHeading)
                 if camera.positionedByUser { followsSimulation = false }
             }
             .onMapCameraChange(frequency: .onEnd) { context in searchRegion = context.region }
@@ -198,51 +224,43 @@ struct LocationSimulationView: View {
                     Button {
                         if let route, tripIsVisible { followsSimulation = false; fitRouteAboveCard(route) }
                         else { setup = true }
-                    } label: { Image(systemName: tripIsVisible ? "point.topleft.down.to.point.bottomright.curvepath" : "person.crop.circle").frame(width: 48, height: 48) }
+                    } label: { OmegaStatusSymbol(name: tripIsVisible ? "point.topleft.down.to.point.bottomright.curvepath" : "person.crop.circle").frame(width: 48, height: 48) }
                         .accessibilityLabel(tripIsVisible ? "Show entire route" : "Omega LocSim settings")
                     Divider().frame(width: 30)
                     Button {
                         if let point = session.coordinate { followsSimulation = true; center(on: point) }
-                        else { camera = .userLocation(fallback: .automatic) }
-                    } label: { Image(systemName: followsSimulation ? "location.fill" : "location").frame(width: 48, height: 48) }
+                        else { moveCamera(to: .userLocation(fallback: .automatic)) }
+                    } label: { OmegaStatusSymbol(name: followsSimulation ? "location.fill" : "location").frame(width: 48, height: 48) }
                         .accessibilityLabel("Recenter on simulated location")
                 }.font(.title3).omegaGlass(in: RoundedRectangle(cornerRadius: 26), interactive: true)
                     .padding(.top, tripIsVisible ? 118 : 12).padding(.trailing, 16)
+                    .animation(panelMotion, value: tripIsVisible)
             }
         }
         .overlay(alignment: .top) {
-            if tripIsVisible { playbackBanner.padding(.horizontal, 12).padding(.top, 8) }
+            if tripIsVisible {
+                playbackBanner.padding(.horizontal, 12).padding(.top, 8)
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            }
         }
+        .animation(panelMotion, value: tripIsVisible)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { mapSize = $0 }
         .sheet(isPresented: $sheetVisible) {
             ScrollViewReader { scrollProxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if tripIsVisible { tripCard }
-                    else if !stops.isEmpty || editing || needsStart { routeEditor }
-                    else if let selected { placeCard(selected) }
-                    else {
-                        HStack(spacing: 12) {
-                            searchField
-                            Button { setup = true } label: {
-                                Image(systemName: "person.crop.circle.fill").font(.title).frame(width: 44, height: 44)
-                            }.omegaGlass(in: Circle(), interactive: true).accessibilityLabel("Omega LocSim settings")
-                        }
-                        if query.isEmpty {
-                            if let pinTarget {
-                                HStack {
-                                    Text("Choose a place for \(pinTarget.title). Search or tap the map.")
-                                        .font(.callout).foregroundStyle(.secondary)
-                                    Button("Cancel") { cancelPinSearch() }.frame(minHeight: 44)
-                                }
-                            } else { pinnedPlaces }
-                        }
+                    ZStack(alignment: .topLeading) {
+                        sheetPrimaryContent
+                            .id(sheetContentIdentity)
+                            .transition(panelTransition)
                     }
-                    if !query.isEmpty { searchResults }
+                    .animation(panelMotion, value: sheetContentIdentity)
+                    if !query.isEmpty { searchResults.transition(.opacity) }
                     if let savedFeedback {
                         Label(savedFeedback, systemImage: "checkmark.circle.fill")
                             .font(.footnote).foregroundStyle(.secondary)
                             .accessibilityElement(children: .combine)
+                            .transition(rowTransition)
                     }
                     if (session.isActive || applyingRoute) && !tripIsVisible {
                         HStack {
@@ -253,24 +271,38 @@ struct LocationSimulationView: View {
                     }
                     if let message = error ?? session.playbackError {
                         Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout)
+                            .transition(.opacity)
                     }
                 }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 16)
                     .id(SheetScrollTarget.top.rawValue)
+                    .animation(detailMotion, value: query.isEmpty)
+                    .animation(detailMotion, value: savedFeedback)
+                    .animation(fadeMotion, value: error ?? session.playbackError)
             }
+            .modifier(OmegaScrollInteraction { cancelSheetScroll() })
             .onChange(of: sheetScrollRequest) { _, request in
                 let target = sheetScrollTarget
-                Task { @MainActor in
+                sheetScrollTask?.cancel()
+                sheetScrollTask = Task { @MainActor in
                     // Let the new trip/editor content and its detent finish replacing
-                    // the old content before positioning the sheet. A newer request wins.
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard sheetScrollRequest == request else { return }
-                    withAnimation(target == .top || reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    // the old content before positioning the sheet. A new request,
+                    // direct scroll, or dismissal cancels the pending handoff.
+                    do { try await Task.sleep(for: .milliseconds(reduceMotion ? 20 : 300)) }
+                    catch { return }
+                    guard !Task.isCancelled, sheetScrollRequest == request else { return }
+                    withAnimation(OmegaMotion.scroll(reduceMotion: reduceMotion)) {
                         scrollProxy.scrollTo(target.rawValue, anchor: .top)
                     }
+                    sheetScrollTask = nil
                 }
             }
+            .onDisappear { cancelSheetScroll() }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { draftActionBar }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                draftActionBar
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                    .animation(detailMotion, value: showsDraftActionBar)
+            }
             .scrollIndicators(.hidden)
             .onChange(of: session.playbackError, initial: true) { _, message in
                 guard let message else { return }
@@ -318,7 +350,7 @@ struct LocationSimulationView: View {
                             SimulationStop(title: "Imported Start", coordinate: points[0]),
                             SimulationStop(title: "Imported End", coordinate: points[points.count - 1])
                         ])
-                        stops = preview!.stops; selected = nil; needsStart = false; searchTarget = nil; detent = previewDetent
+                        stops = preview!.stops; selected = nil; needsStart = false; searchTarget = nil; setDetent(previewDetent)
                         hasPresentedRoutePreview = true
                         if let preview { loadRoadMetadata(for: preview) }
                     }
@@ -339,7 +371,7 @@ struct LocationSimulationView: View {
         }
         .onChange(of: query) { _, value in
             placeSearch.update(value, region: searchRegion)
-            if !value.isEmpty { detent = .large }
+            if !value.isEmpty { setDetent(.large) }
         }
         .onChange(of: tripIsVisible) { _, visible in
             if visible {
@@ -350,7 +382,7 @@ struct LocationSimulationView: View {
             }
         }
         .onChange(of: session.currentWait != nil) { _, _ in
-            if tripIsVisible, detent != .large { detent = compactDetent }
+            if tripIsVisible, detent != .large { setDetent(compactDetent) }
         }
         .onReceive(session.$coordinate) { point in
             if let point, let previous = previousAcceptedCoordinate, session.plannedRoute != nil,
@@ -359,13 +391,42 @@ struct LocationSimulationView: View {
                 let radians = Double.pi / 180
                 let a = previous.latitude * radians, b = point.latitude * radians
                 let longitude = (point.longitude - previous.longitude) * radians
-                simulatedHeading = atan2(sin(longitude) * cos(b), cos(a) * sin(b) - sin(a) * cos(b) * cos(longitude)) / radians
+                let heading = atan2(sin(longitude) * cos(b), cos(a) * sin(b) - sin(a) * cos(b) * cos(longitude)) / radians
+                simulatedHeading = continuousHeading(heading, from: simulatedHeading)
             }
             previousAcceptedCoordinate = point
-            if followsSimulation, !editing, let point { center(on: point) }
+            if followsSimulation, !editing, let point { center(on: point, following: true) }
         }
         .onChange(of: session.isActive) { _, active in
             if !active, editing { cancelDraft() }
+        }
+        .onChange(of: setup) { _, presented in if presented { cancelSheetScroll() } }
+        .onChange(of: librarySection) { _, section in if section != nil { cancelSheetScroll() } }
+    }
+
+    @ViewBuilder private var sheetPrimaryContent: some View {
+        if tripIsVisible { tripCard }
+        else if !stops.isEmpty || editing || needsStart { routeEditor }
+        else if let selected { placeCard(selected) }
+        else {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    searchField
+                    Button { setup = true } label: {
+                        Image(systemName: "person.crop.circle.fill").font(.title).frame(width: 44, height: 44)
+                    }.omegaGlass(in: Circle(), interactive: true).accessibilityLabel("Omega LocSim settings")
+                }
+                if query.isEmpty {
+                    if let pinTarget {
+                        HStack {
+                            Text("Choose a place for \(pinTarget.title). Search or tap the map.")
+                                .font(.callout).foregroundStyle(.secondary)
+                            Button("Cancel") { cancelPinSearch() }.frame(minHeight: 44)
+                        }.transition(.opacity)
+                    } else { pinnedPlaces.transition(.opacity) }
+                }
+            }
+            .animation(detailMotion, value: pinTarget)
         }
     }
 
@@ -389,7 +450,7 @@ struct LocationSimulationView: View {
                                 Text("Add").font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                                 Text("Place").font(.caption).foregroundStyle(.secondary)
                             }.frame(width: 80)
-                        }.buttonStyle(.plain).accessibilityLabel("Add pinned place")
+                        }.buttonStyle(OmegaQuietButtonStyle()).accessibilityLabel("Add pinned place")
                     }.padding(.vertical, 2)
                 }.scrollIndicators(.hidden)
             }
@@ -421,7 +482,7 @@ struct LocationSimulationView: View {
                             Image(systemName: "plus.circle.fill").font(.title2)
                         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                             .background(contentFill, in: RoundedRectangle(cornerRadius: 24))
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(OmegaQuietButtonStyle())
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 280 : 160), spacing: 12)], spacing: 12) {
                         ForEach(library.savedRoutes.prefix(4)) { saved in savedRouteCard(saved) }
@@ -429,6 +490,9 @@ struct LocationSimulationView: View {
                 }
             }
         }.padding(.top, 6)
+            .animation(detailMotion, value: library.pins.map(\.id))
+            .animation(detailMotion, value: library.recents.map(\.id))
+            .animation(detailMotion, value: library.savedRoutes.map(\.id))
     }
 
     private func sectionHeading(_ title: String, action: @escaping () -> Void) -> some View {
@@ -438,7 +502,7 @@ struct LocationSimulationView: View {
                 Image(systemName: "chevron.right").font(.body.weight(.semibold)).foregroundStyle(.tertiary)
                 Spacer()
             }.frame(minHeight: 44).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityLabel("Show all \(title.lowercased())")
+        }.buttonStyle(OmegaQuietButtonStyle()).accessibilityLabel("Show all \(title.lowercased())")
     }
 
     private func emptyCollection(_ title: String, detail: String, symbol: String) -> some View {
@@ -468,7 +532,7 @@ struct LocationSimulationView: View {
                 Text(pin.map { proximity(to: $0.coordinate) } ?? "Set Up")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }.frame(width: dynamicTypeSize.isAccessibilitySize ? 124 : 80).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(OmegaQuietButtonStyle())
             .accessibilityLabel(pin.map { "\($0.name), \($0.placeName)" } ?? "Add \(kind.title)")
             .contextMenu {
                 if let pin {
@@ -498,7 +562,7 @@ struct LocationSimulationView: View {
                         Text(recent.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(minHeight: 64).padding(.vertical, 6).contentShape(Rectangle())
-            }.buttonStyle(.plain)
+            }.buttonStyle(OmegaQuietButtonStyle())
             Menu {
                 Button { openRecent(recent) } label: { Label(recent.kind == .route ? "Build Route" : "View Place", systemImage: recent.symbol) }
                 if recent.kind == .route {
@@ -530,7 +594,7 @@ struct LocationSimulationView: View {
                     Text(saved.name).font(.headline).foregroundStyle(.primary).lineLimit(2)
                     Text(saved.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                 }.frame(maxWidth: .infinity, minHeight: 54, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel("Build route, \(saved.name), \(saved.subtitle)")
+            }.buttonStyle(OmegaQuietButtonStyle()).accessibilityLabel("Build route, \(saved.name), \(saved.subtitle)")
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
             .background(contentFill, in: RoundedRectangle(cornerRadius: 24))
     }
@@ -544,7 +608,7 @@ struct LocationSimulationView: View {
     private func loadRoute(_ values: [SimulationStop]) {
         guard session.plannedRoute == nil, values.count >= 2 else { return }
         cancelDraft(); librarySection = nil; selected = nil; stops = values
-        followsSimulation = false; needsStart = false; detent = .large; calculate()
+        followsSimulation = false; needsStart = false; setDetent(.large); calculate()
     }
     private func beginNewRoute() {
         guard session.plannedRoute == nil else { return }
@@ -608,6 +672,10 @@ struct LocationSimulationView: View {
                     ForEach(library.savedRoutes) { saved in savedRouteCard(saved).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0)) }
                 }
             }.buttonStyle(.borderless).navigationTitle(section.rawValue)
+                .animation(detailMotion, value: library.pins.map(\.id))
+                .animation(detailMotion, value: library.bookmarks.map(\.id))
+                .animation(detailMotion, value: library.recents.map(\.id))
+                .animation(detailMotion, value: library.savedRoutes.map(\.id))
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { librarySection = nil } } }
         }
     }
@@ -661,7 +729,7 @@ struct LocationSimulationView: View {
                 Toggle("Mapped Road Details", isOn: $roadMetadataAllowed)
                     .onChange(of: roadMetadataAllowed) { _, _ in
                         refreshTrafficPlanIfNeeded()
-                        if tripIsVisible, detent != .large { detent = compactDetent }
+                        if tripIsVisible, detent != .large { setDetent(compactDetent) }
                     }
                 if roadMetadataAllowed {
                     Toggle("Traffic Lights", isOn: $mappedTrafficLights)
@@ -687,6 +755,11 @@ struct LocationSimulationView: View {
             Label("Set a stay duration from each stop’s options. The destination holds until you end or restore the route.", systemImage: "mappin.and.ellipse")
                 .font(.footnote).foregroundStyle(.secondary).padding(.bottom, 12)
         }.padding(.top, 8)
+            .animation(detailMotion, value: leaveLater)
+            .animation(detailMotion, value: arriveBy)
+            .animation(detailMotion, value: arrivalDraftHasChanges)
+            .animation(detailMotion, value: roadMetadataAllowed)
+            .animation(detailMotion, value: mappedTrafficLights)
     }
     @ViewBuilder private func scheduleDatePicker(_ title: String, selection: Binding<Date>) -> some View {
         if dynamicTypeSize.isAccessibilitySize {
@@ -748,7 +821,7 @@ struct LocationSimulationView: View {
 
     private func beginPinSearch(_ kind: OmegaPinKind, replacing id: UUID? = nil) {
         pinTarget = kind; replacingPinID = id; selected = nil
-        cancelStopSearch(); detent = .large; searchFocused = true
+        cancelStopSearch(); setDetent(.large); searchFocused = true
     }
     private func cancelPinSearch() {
         pinTarget = nil; replacingPinID = nil; cancelStopSearch()
@@ -790,9 +863,11 @@ struct LocationSimulationView: View {
             if !query.isEmpty {
                 Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44) }
                     .accessibilityLabel("Clear search")
+                    .transition(.opacity)
             }
         }.frame(minHeight: 44).padding(.horizontal, 13).padding(.vertical, 3)
             .omegaGlass(in: Capsule(), interactive: true)
+            .animation(fadeMotion, value: query.isEmpty)
     }
     private var searchResults: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
@@ -802,7 +877,8 @@ struct LocationSimulationView: View {
                 }
                 Divider().padding(.leading, 48)
             }
-            ForEach(Array(placeSearch.suggestions.enumerated()), id: \.offset) { _, suggestion in
+            ForEach(identifiedSearchSuggestions) { entry in
+                let suggestion = entry.suggestion
                 Button {
                     Task {
                         if let item = await placeSearch.resolve(suggestion) {
@@ -811,19 +887,56 @@ struct LocationSimulationView: View {
                     }
                 } label: { searchRow(title: suggestion.title, subtitle: suggestion.subtitle, symbol: "magnifyingglass") }
                 .disabled(placeSearch.isSearching)
+                .transition(.opacity)
                 Divider().padding(.leading, 48)
             }
-            ForEach(Array(placeSearch.results.enumerated()), id: \.offset) { _, item in
+            ForEach(identifiedSearchResults) { entry in
+                let item = entry.item
                 Button { choose(.init(title: item.name ?? "Place", coordinate: item.placemark.coordinate)) } label: {
                     searchRow(title: item.name ?? "Place", subtitle: item.placemark.title ?? "", symbol: "mappin")
                 }
+                .transition(.opacity)
                 Divider().padding(.leading, 48)
             }
             if placeSearch.isSearching {
                 HStack(spacing: 10) { ProgressView(); Text("Finding places…").foregroundStyle(.secondary) }.padding(.vertical, 16)
             }
             if let message = placeSearch.error { Text(message).font(.callout).foregroundStyle(.secondary).padding(.vertical, 12) }
-        }.buttonStyle(.plain)
+        }.buttonStyle(OmegaQuietButtonStyle())
+            .animation(fadeMotion, value: identifiedSearchSuggestions.map(\.id))
+            .animation(fadeMotion, value: identifiedSearchResults.map(\.id))
+            .animation(fadeMotion, value: placeSearch.isSearching)
+            .animation(fadeMotion, value: placeSearch.error)
+    }
+
+    private struct SearchSuggestionEntry: Identifiable {
+        let id: String
+        let suggestion: MKLocalSearchCompletion
+    }
+    private struct SearchResultEntry: Identifiable {
+        let id: String
+        let item: MKMapItem
+    }
+    // Offset identity made existing rows abruptly become different places as
+    // completions arrived. Semantic keys preserve the rows that actually remain.
+    private var identifiedSearchSuggestions: [SearchSuggestionEntry] {
+        var occurrences: [String: Int] = [:]
+        return placeSearch.suggestions.map { suggestion in
+            let key = suggestion.title + "\u{1F}" + suggestion.subtitle
+            let occurrence = occurrences[key, default: 0]
+            occurrences[key] = occurrence + 1
+            return SearchSuggestionEntry(id: key + "\u{1F}\(occurrence)", suggestion: suggestion)
+        }
+    }
+    private var identifiedSearchResults: [SearchResultEntry] {
+        var occurrences: [String: Int] = [:]
+        return placeSearch.results.map { item in
+            let coordinate = item.placemark.coordinate
+            let key = "\(item.name ?? "")\u{1F}\(coordinate.latitude)\u{1F}\(coordinate.longitude)"
+            let occurrence = occurrences[key, default: 0]
+            occurrences[key] = occurrence + 1
+            return SearchResultEntry(id: key + "\u{1F}\(occurrence)", item: item)
+        }
     }
 
     private func searchRow(title: String, subtitle: String, symbol: String) -> some View {
@@ -848,6 +961,8 @@ struct LocationSimulationView: View {
             }.omegaGlass(in: Circle(), interactive: true).accessibilityLabel("Location options")
             VStack(spacing: 3) {
                 Text(title).font(.title3.bold()).multilineTextAlignment(.center)
+                    .contentTransition(.opacity)
+                    .animation(fadeMotion, value: title)
                 if let subtitle { Text(subtitle).font(.subheadline.weight(.medium)).foregroundStyle(.secondary) }
             }.frame(maxWidth: .infinity)
             Button(action: close) {
@@ -885,7 +1000,7 @@ struct LocationSimulationView: View {
                         customPinPlace = place; editedName = place.title; showsNameEditor = true
                     } label: { Label("Add Custom Pin", systemImage: "mappin.and.ellipse") }
                 } label: {
-                    Image(systemName: library.bookmarks.contains { abs($0.latitude - place.coordinate.latitude) < 0.000001 && abs($0.longitude - place.coordinate.longitude) < 0.000001 } ? "bookmark.fill" : "bookmark")
+                    OmegaStatusSymbol(name: library.bookmarks.contains { abs($0.latitude - place.coordinate.latitude) < 0.000001 && abs($0.longitude - place.coordinate.longitude) < 0.000001 } ? "bookmark.fill" : "bookmark")
                         .font(.title3).frame(width: 44, height: 44)
                 }.accessibilityLabel("Save or pin place")
             }.padding(12).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 22))
@@ -915,7 +1030,7 @@ struct LocationSimulationView: View {
                 if searchTarget != nil { cancelStopSearch() }
                 else {
                     let wasEditing = editing
-                    cancelDraft(); detent = session.plannedRoute == nil ? .height(290) : compactDetent
+                    cancelDraft(); setDetent(session.plannedRoute == nil ? .height(290) : compactDetent)
                     if wasEditing, let activeRoute = session.plannedRoute { loadRoadMetadata(for: activeRoute) }
                 }
             }
@@ -940,7 +1055,7 @@ struct LocationSimulationView: View {
                     ForEach(library.pins) { pin in
                         Button { choose(.init(title: pin.name, coordinate: pin.coordinate)) } label: {
                             searchRow(title: pin.name, subtitle: pin.placeName, symbol: pin.kind.symbol)
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(OmegaQuietButtonStyle())
                     }
                 }
             } else {
@@ -963,6 +1078,7 @@ struct LocationSimulationView: View {
                     }
                     ForEach(Array(stops.enumerated()), id: \.element.id) { index, stop in
                         stopRow(stop, at: index)
+                            .transition(rowTransition)
                         Divider().padding(.leading, 32)
                     }
                     Button { beginStopSearch(.addStop) } label: {
@@ -975,12 +1091,13 @@ struct LocationSimulationView: View {
                 }.padding(.horizontal, 14).padding(.vertical, 5)
                     .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 24))
                     .disabled(applyingRoute)
+                    .animation(detailMotion, value: stops.map(\.id))
                 if let removedStop {
                     HStack {
                         Text("Removed \(removedStop.stop.title)").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
                         Spacer()
                         Button("Undo") { undoRemoveStop() }.font(.footnote.weight(.semibold)).frame(minHeight: 44)
-                    }
+                    }.transition(.opacity)
                 }
                 Button { openTiming(forActiveRoute: false) } label: {
                     HStack {
@@ -992,8 +1109,10 @@ struct LocationSimulationView: View {
                 }.foregroundStyle(.primary)
                 if let preview {
                     previewSummary(preview)
+                        .transition(.opacity)
                 } else if loading {
                     HStack { ProgressView(); Text("Finding route…") }.frame(maxWidth: .infinity, minHeight: 64)
+                        .transition(.opacity)
                 } else if needsStart {
                     Text("Choose a starting location to see your route.").font(.callout).foregroundStyle(.secondary)
                 } else if stops.count < 2 {
@@ -1004,6 +1123,10 @@ struct LocationSimulationView: View {
                 routeOptions(active: false).disabled(applyingRoute)
             }
         }
+        .animation(detailMotion, value: searchTarget)
+        .animation(detailMotion, value: removedStop?.stop.id)
+        .animation(fadeMotion, value: preview != nil)
+        .animation(fadeMotion, value: loading)
     }
     private var routeMode: some View {
         Label {
@@ -1040,8 +1163,12 @@ struct LocationSimulationView: View {
         }.padding(16).background(contentFill, in: RoundedRectangle(cornerRadius: 24))
     }
 
+    private var showsDraftActionBar: Bool {
+        preview != nil && !tripIsVisible && searchTarget == nil && (!stops.isEmpty || editing)
+    }
+
     @ViewBuilder private var draftActionBar: some View {
-        if let preview, !tripIsVisible, searchTarget == nil, !stops.isEmpty || editing {
+        if let preview, showsDraftActionBar {
             VStack(spacing: 8) {
                 if editing {
                     Text("The final ETA is recalculated from your live position when you apply.")
@@ -1092,7 +1219,7 @@ struct LocationSimulationView: View {
                 // rebased routes also get a request if none exists yet.
                 if let currentRoute = session.plannedRoute { loadRoadMetadata(for: currentRoute) }
                 if let point = session.coordinate { center(on: point) }
-                detent = compactDetent
+                setDetent(compactDetent)
             }
         }
     }
@@ -1176,7 +1303,7 @@ struct LocationSimulationView: View {
         }.accessibilityLabel("Reorder and options for \(stop.title)")
         Button(role: .destructive) { removeStop(stop.id) } label: {
             Image(systemName: "minus.circle.fill").font(.system(size: 22)).frame(width: 44, height: 44)
-        }.buttonStyle(.plain).foregroundStyle(.red).accessibilityLabel("Remove \(stop.title)")
+        }.buttonStyle(OmegaQuietButtonStyle()).foregroundStyle(.red).accessibilityLabel("Remove \(stop.title)")
     }
 
     private func removeStop(_ id: UUID) {
@@ -1215,18 +1342,26 @@ struct LocationSimulationView: View {
             }
         }.padding(.horizontal, 14).padding(.bottom, 10)
             .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 22))
+            .animation(detailMotion, value: session.useRoadSpeeds)
     }
     private var playbackBanner: some View {
         HStack(spacing: 14) {
-            Image(systemName: session.currentWait != nil ? "clock.fill" : session.playbackState == .playing ? "location.north.circle.fill" : session.playbackState == .arrived ? "checkmark.circle.fill" : "pause.circle.fill")
-                .font(.system(size: 36)).accessibilityHidden(true)
+            OmegaStatusSymbol(name: session.currentWait != nil ? "clock.fill" : session.playbackState == .playing ? "location.north.circle.fill" : session.playbackState == .arrived ? "checkmark.circle.fill" : "pause.circle.fill")
+                .font(.system(size: 32, weight: .medium)).foregroundStyle(OmegaMapPalette.blue)
+                .frame(width: 48, height: 48)
+                .background(OmegaMapPalette.blue.opacity(0.10), in: Circle())
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(playbackTitle).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
                 Text(playbackDestination)
                     .font(.title3.bold()).lineLimit(2)
+                    .contentTransition(.opacity)
+                    .animation(fadeMotion, value: session.remainingStops.first?.id)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.padding(18).frame(minHeight: 88)
             .omegaGlass(in: RoundedRectangle(cornerRadius: 30))
+            .animation(fadeMotion, value: playbackTitle)
     }
     private var tripCard: some View {
         VStack(spacing: 12) {
@@ -1260,11 +1395,14 @@ struct LocationSimulationView: View {
             if let wait = session.currentWait {
                 HStack {
                     Label(waitLabel(wait.remainingSeconds), systemImage: "clock").font(.subheadline.weight(.semibold)).monospacedDigit()
+                        .contentTransition(reduceMotion ? .opacity : .numericText(countsDown: true))
+                        .animation(fadeMotion, value: Int(ceil(wait.remainingSeconds)))
                     Spacer()
                     Button(waitButtonTitle) { session.skipCurrentWait() }
                         .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                         .disabled(!session.canSkipWait || concludingActionID != nil)
                 }.padding(.horizontal, 12).background(contentFill, in: RoundedRectangle(cornerRadius: 18))
+                    .transition(.opacity)
             }
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(spacing: 12) { tripActions }
@@ -1277,6 +1415,9 @@ struct LocationSimulationView: View {
             if let activeRoute = session.plannedRoute { compactMetadataStatus(for: activeRoute) }
             routeOptions(active: true)
         }
+        .animation(detailMotion, value: session.currentWait != nil)
+        .animation(detailMotion, value: session.plannedRoute?.arrivalDate != nil)
+        .animation(fadeMotion, value: session.playbackState)
     }
     @ViewBuilder private var tripMetrics: some View {
         tripMetric(session.playbackState == .paused ? "—" : arrivalTime(duration: session.remainingDuration), label: "arrival")
@@ -1288,8 +1429,14 @@ struct LocationSimulationView: View {
         Button {
             if session.playbackState == .playing { session.pausePlayback() } else { session.resumePlayback() }
         } label: {
-            Label(session.playbackState == .arrived ? "Arrived" : session.playbackState == .playing ? "Pause" : "Resume", systemImage: session.playbackState == .arrived ? "checkmark.circle.fill" : session.playbackState == .playing ? "pause.fill" : "play.fill")
-                .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+            Label {
+                Text(session.playbackState == .arrived ? "Arrived" : session.playbackState == .playing ? "Pause" : "Resume")
+                    .contentTransition(.opacity)
+            } icon: {
+                OmegaStatusSymbol(name: session.playbackState == .arrived ? "checkmark.circle.fill" : session.playbackState == .playing ? "pause.fill" : "play.fill")
+                    .frame(width: 16)
+            }.font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+                .animation(fadeMotion, value: session.playbackState)
         }.omegaGlassButton(prominent: true).disabled(session.playbackState == .arrived || concludingActionID != nil)
         Button { editRoute() } label: {
             Label("Edit Route", systemImage: "pencil").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
@@ -1306,11 +1453,15 @@ struct LocationSimulationView: View {
     }
     private func openTiming(forActiveRoute: Bool) {
         if forActiveRoute && !arrivalDraftHasChanges { syncActiveTiming() }
-        detent = .large; requestSheetScroll(.options)
+        setDetent(.large); requestSheetScroll(.options)
     }
     private func requestSheetScroll(_ target: SheetScrollTarget) {
         sheetScrollTarget = target
         sheetScrollRequest += 1
+    }
+    private func cancelSheetScroll() {
+        sheetScrollTask?.cancel()
+        sheetScrollTask = nil
     }
     private func syncActiveTiming() {
         arriveBy = session.plannedRoute?.arrivalDate != nil
@@ -1326,7 +1477,7 @@ struct LocationSimulationView: View {
             guard concludingActionID == id else { return }
             concludingActionID = nil
             if !session.isActive { cancelDraft() }
-            detent = .height(290)
+            setDetent(.height(290))
         }
     }
     private func editRoute() {
@@ -1335,7 +1486,7 @@ struct LocationSimulationView: View {
         stops = [SimulationStop(title: "Simulated Location", coordinate: point)] + session.remainingStops
         arriveBy = activeRoute.arrivalDate != nil
         arrivalDate = activeRoute.arrivalDate ?? .now.addingTimeInterval(max(60, session.remainingDuration))
-        editing = true; preview = nil; needsStart = false; detent = .large
+        editing = true; preview = nil; needsStart = false; setDetent(.large)
         removedStop = nil; cancelStopSearch(); invalidatePreview()
         requestSheetScroll(.top)
     }
@@ -1343,6 +1494,8 @@ struct LocationSimulationView: View {
         VStack(spacing: 2) {
             Text(value).font(.title2.bold()).monospacedDigit()
                 .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
+                .contentTransition(reduceMotion ? .opacity : .numericText())
+                .animation(fadeMotion, value: value)
             Text(label).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity).accessibilityElement(children: .combine)
             .accessibilityLabel(accessibility ?? "\(value) \(label)")
@@ -1406,7 +1559,7 @@ struct LocationSimulationView: View {
         guard !applyingRoute else { return }
         if let pinTarget {
             library.savePin(kind: pinTarget, name: library.pins.first(where: { $0.id == replacingPinID })?.name, place: stop, replacing: replacingPinID)
-            cancelPinSearch(); selected = stop; detent = .height(290)
+            cancelPinSearch(); selected = stop; setDetent(.height(290))
         } else if !stops.isEmpty || editing || needsStart {
             guard let searchTarget else { return }
             switch searchTarget {
@@ -1423,10 +1576,10 @@ struct LocationSimulationView: View {
             invalidatePreview(preservingSheet: true)
         } else {
             cancelStopSearch()
-            selected = stop; detent = .height(290)
+            selected = stop; setDetent(.height(290))
         }
         savedFeedback = nil; followsSimulation = false
-        camera = .region(MKCoordinateRegion(center: stop.coordinate, latitudinalMeters: 2500, longitudinalMeters: 2500))
+        moveCamera(to: .region(MKCoordinateRegion(center: stop.coordinate, latitudinalMeters: 2500, longitudinalMeters: 2500)))
     }
     private func directions(to stop: SimulationStop) {
         selected = nil; preview = nil; followsSimulation = false
@@ -1437,13 +1590,13 @@ struct LocationSimulationView: View {
             // A start is explicit: never assume a map camera center is the device location.
             stops = [stop]; needsStart = true; beginStopSearch(.startingLocation)
         }
-        detent = .large
+        setDetent(.large)
         invalidatePreview()
     }
     private func beginStopSearch(_ target: RouteSearchTarget) {
         placeSearch.cancel()
         query = ""; searchTarget = target
-        detent = .large; searchFocused = true
+        setDetent(.large); searchFocused = true
     }
     private func cancelStopSearch() {
         placeSearch.cancel()
@@ -1457,11 +1610,31 @@ struct LocationSimulationView: View {
         cancelStopSearch()
         pruneRoadMetadataRequests()
     }
-    private func center(on point: CLLocationCoordinate2D) {
+    private func setDetent(_ value: PresentationDetent) {
+        guard detent != value else { return }
+        withAnimation(reduceMotion ? nil : panelMotion) { detent = value }
+    }
+    private func moveCamera(to position: MapCameraPosition, following: Bool = false) {
+        let now = Date.now
+        // Following uses a bounded, camera-only interpolation. Nothing waits for
+        // it to finish, and a map gesture immediately relinquishes following.
+        let duration = following ? min(0.65, max(0.12, now.timeIntervalSince(lastFollowUpdate ?? now.addingTimeInterval(-0.5)))) : 0.5
+        lastFollowUpdate = following ? now : nil
+        withAnimation(OmegaMotion.camera(duration: duration, following: following, reduceMotion: reduceMotion)) {
+            camera = position
+        }
+    }
+    private func continuousHeading(_ target: Double, from current: Double) -> Double {
+        var delta = (target - current).truncatingRemainder(dividingBy: 360)
+        if delta > 180 { delta -= 360 }
+        if delta < -180 { delta += 360 }
+        return current + delta
+    }
+    private func center(on point: CLLocationCoordinate2D, following: Bool = false) {
         if tripIsVisible {
-            camera = .camera(MapCamera(centerCoordinate: point, distance: 1100, heading: reduceMotion ? 0 : simulatedHeading, pitch: reduceMotion ? 0 : 48))
+            moveCamera(to: .camera(MapCamera(centerCoordinate: point, distance: 1100, heading: reduceMotion ? 0 : simulatedHeading, pitch: reduceMotion ? 0 : 48)), following: following)
         } else {
-            camera = .region(MKCoordinateRegion(center: point, latitudinalMeters: 1600, longitudinalMeters: 1600))
+            moveCamera(to: .region(MKCoordinateRegion(center: point, latitudinalMeters: 1600, longitudinalMeters: 1600)), following: following)
         }
     }
     private func invalidatePreview(preservingSheet: Bool = false) {
@@ -1492,7 +1665,7 @@ struct LocationSimulationView: View {
                 // Recalculating stops must not collapse or reposition an expanded editor.
                 // Only the first reveal may choose a compact preview, and only if
                 // the user has not changed the sheet size while the route loaded.
-                if !editing, initialReveal, detent == requestedDetent { detent = previewDetent }
+                if !editing, initialReveal, detent == requestedDetent { setDetent(previewDetent) }
                 hasPresentedRoutePreview = true
             } catch {
                 guard requestID == id else { return }; loading = false
@@ -1516,12 +1689,14 @@ struct LocationSimulationView: View {
                     if request.isLoading { ProgressView().controlSize(.small) }
                     else { Image(systemName: request.failed ? "clock.arrow.circlepath" : "checkmark.circle") }
                     Text(status).font(.caption).fixedSize(horizontal: false, vertical: true)
+                        .contentTransition(.opacity)
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.down").font(.caption)
                 }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            }.buttonStyle(.plain).foregroundStyle(.secondary)
+            }.buttonStyle(OmegaQuietButtonStyle()).foregroundStyle(.secondary)
                 .accessibilityLabel("Road detail status, \(status)")
                 .accessibilityHint("Opens route options.")
+                .animation(fadeMotion, value: status)
         }
     }
     private func metadataRetryStatus(_ retryAt: Date) -> some View {
@@ -1555,6 +1730,9 @@ struct LocationSimulationView: View {
                         .font(.caption.weight(.semibold)).frame(minHeight: 44)
                 }
             }
+            .animation(fadeMotion, value: request.isLoading)
+            .animation(fadeMotion, value: request.failed)
+            .animation(fadeMotion, value: request.notice)
         }
     }
     private func refreshTrafficPlanIfNeeded() {
@@ -1670,9 +1848,9 @@ struct LocationSimulationView: View {
         let availableFraction = 0.34
         let height = max(1, max(rect.height * 1.2 / availableFraction, rect.width * 1.2 / aspect))
         let width = height * aspect
-        camera = .rect(MKMapRect(x: rect.midX - width / 2,
+        moveCamera(to: .rect(MKMapRect(x: rect.midX - width / 2,
             y: rect.midY - (topMargin + availableFraction / 2) * height,
-            width: width, height: height))
+            width: width, height: height)))
     }
 
 }
