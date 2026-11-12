@@ -2,7 +2,15 @@
 
 Omega LocSim is an iPhone location simulator built from [StikDebug](https://github.com/StikDebug/StikDebug), with a native MapKit interface and Liquid Glass controls.
 
-## Version 3.3.1
+## Version 3.3.2
+
+Version 3.3.2 (build 11) smooths map following, sheet changes, status symbols, and route controls. Search results keep stable identities while suggestions change, and dragging a sheet cancels a pending automatic scroll. Reduce Motion uses fades and disables camera animation.
+
+This public build retains the standard pairing-file import flow. It does **not** include the separately licensed StikPair on-device pairing integration used in the personal build. Public and personal builds share the Omega bundle identifier; installing this public build replaces a personal Omega installation.
+
+The generic iOS Release build and unsigned IPA integrity checks passed. See [release notes](RELEASE_NOTES.md) for the download filename, checksum, and validation scope. No new physical-device validation is claimed for this public release.
+
+## Historical 3.3.1 update
 
 Version 3.3.1 (build 10) repairs progressive road-data loading. Smaller chunks publish limits and lights sooner; Go keeps loading after a fallback start, imported paths load details, and editing no longer cancels the active route's request. Partial progress is visible. Busy servers produce a retry countdown, with continued backoff while a route is active. Late updates keep accepted progress and the latest Arrive By target, adjusting lights and pace together.
 
@@ -59,6 +67,6 @@ The active icon is `StikDebug/OmegaLocSimPeel.icon`, using 40 individual vector 
 
 ## Source and attribution
 
-Source repository: [GitHub fork](https://github.com/Omega-Omega-Omega/Omega-LocSim). This repository contains the Omega LocSim implementation; no GitHub Release is published.
+Source repository: [GitHub fork](https://github.com/Omega-Omega-Omega/Omega-LocSim). Public build downloads: [GitHub Releases](https://github.com/Omega-Omega-Omega/Omega-LocSim/releases). Downloaded unsigned IPAs require signing before installation. Every public update published as a GitHub release includes a built unsigned IPA, a matching source tag, and a SHA-256 checksum.
 
 Based on StikDebug commit `17b1e1d90d602a228de663a10efa987a9f9e547b`, using [idevice](https://github.com/jkcoxson/idevice) for device communication. Original notices and the [AGPL-3.0 license](LICENSE) are preserved. [README.upstream.md](README.upstream.md) retains upstream documentation; its download links refer to StikDebug.
